@@ -1,0 +1,14 @@
+name: guidance_noshield
+notes: >
+  Guidance taban cizgisi: kalkansiz. Kalkanin marjinal katkisi
+  ancak bu tabana gore olculebilir.
+
+env:
+  episode_s: 180.0
+  use_shield: false
+
+sac:
+  total_steps: 1000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

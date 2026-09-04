@@ -1,0 +1,21 @@
+name: reward_r2_bonus
+notes: >
+  HIPOTEZ 2 -- KABUL KRITERI ODULDE GORUNUR AGIRLIK ALIR.
+  Olcum: hedef bonusu bolum basi 16.8 puan = getirinin %0.7'si; bunun
+  ~10.6'si KOSULSUZ (konuma varma, 0.4 carpani). Kaliteye bagli kisim
+  6.2 puan = %0.26. SAC'in kritigi, yogun sekillendirme teriminin
+  varyansi icinde %0.26'lik bir sinyali cozemez -- kalite fiilen
+  kisitsizdir ve egitim uzadikca surukleniyor (3M'de tepe, 8M'de dip).
+  r_waypoint 10 -> 60: kaliteye bagli band 6.2 -> 37 puan (~%1.6).
+  Tek basina yeterli olmayabilir; r3 ile birlikte degerlendirilir.
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.5
+  r_waypoint: 60.0
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

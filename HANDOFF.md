@@ -1,0 +1,325 @@
+# Devir Dokümanı — Yeni Oturum İçin
+
+> Bu dosya, projeyi hiç görmemiş bir oturumun (veya kişinin) devam
+> edebilmesi için yazıldı. Önce bunu, sonra `ARCHITECTURE.md` ve
+> `REQUIREMENTS.md`'yi oku. Anlık durum için `STATUS.md`.
+
+---
+
+## 1. Proje nedir
+
+JSBSim F-16 üzerinde, **kademeli (cascade) kontrol mimarisi** ile otonom
+görüş-ötesi (BVR) savaş uçağı. Katmanlar aşağıdan yukarı:
+
+```
+JSBSim F-16 FLCS        120 Hz   uçağın kendi fly-by-wire'ı (hazır)
+İç döngü (klasik PI)     60 Hz   γ/φ/Mach tutucu            ✅ BİTTİ
+Guidance (SAC)           10 Hz   hedef → [φ_cmd, γ_cmd, M_cmd]  🔄
+Güvenlik filtresi (CBF)  10 Hz   komut yöneticisi           ✅ DONDU
+Taktik komutan (PPO)      2 Hz   radar/füze/kaçış/kol uçuşu ⬜ SONRAKİ
+```
+
+**Amaç ikili:** (a) tez — Koopman tabanlı öğrenilmiş model + CBF güvenlik
+filtresi, DMD→EDMD→Deep-Koopman karşılaştırması; (b) portfolyo — çalışan,
+Tacview'de gösterilebilir bir BVR demosu.
+
+---
+
+## 2. EN ÖNEMLİ İLKE: katmanları aşağıdan yukarı dondur
+
+Bir alt katman değişirse **üstündeki her şey geçersizleşir ve yeniden
+eğitilmesi gerekir.** Bu projede bu kurala uymamak defalarca saatler
+kaybettirdi (v5→v9 arası 5 gereksiz eğitim koşusu).
+
+Pratik sonuç:
+- Kalkan **eğitim döngüsünün içinde** olduğu için, kalkanı değiştirmek
+  guidance'ı geçersiz kılar → kalkan guidance'tan **önce** kesinleşir.
+- Guidance dondurulmadan komutan eğitimine **başlanmaz**.
+
+---
+
+## 3. Kilitli kararlar (yeniden tartışılmayacak)
+
+| Konu | Karar | Gerekçe |
+|---|---|---|
+| Mimari | Kademeli: klasik iç döngü + RL guidance + CBF + RL komutan | Uçtan uca RL en zor uç; literatür ve endüstri kademeli yapar |
+| RL komutu | `[φ_cmd, γ_cmd, M_cmd]` — **γ, θ değil** | θ = γ + α; aynı θ farklı hızlarda farklı tırmanış verir |
+| CBF yeri | **Dış döngü komutunda** (10 Hz), yüzey komutunda değil | 60 Hz'de bağıl derece yüzünden \|CB\|≈0.01, kalkan işlevsiz |
+| Guidance algoritması | **SAC** | Sürekli aksiyon, örneklem verimliliği (JSBSim adımı pahalı) |
+| Komutan algoritması | **PPO** | Karma aksiyon uzayı (sürekli + kesikli ateş/hedef) + self-play durağansızlığı |
+| Kalkan modeli | `data/models/edmd_physics.pkl` | MDL-08: denetlenebilirlik > doğruluk (sertifikasyon) |
+| Model fit | **Offline**, dondurulmuş | Kalıcı uyarım ancak tasarlanmış uyarımla sağlanır |
+| Normalizasyon | **Sabit ölçekler** (`state_def.py`), VecNormalize yok | Güvenli küme eğitim boyunca oynamamalı |
+| Deep-Koopman | Sadece karşılaştırma satırı | Ek zaman harcanmayacak |
+| Yedek politikalı filtre | **Park edildi** | Kritik yolda değil; enerji komutanın ödülünde |
+| Kanat uçağı | Önce scripted, sonra MARL | Risk düşük, ikisinin karşılaştırması ayrı sonuç |
+| Düşman | Scripted havuz + eski ajan sürümleri (opponent sampling) | AlphaDogfight yaklaşımı |
+
+---
+
+## 4. TUZAKLAR — bunları tekrar keşfetmeye çalışma
+
+Bu bölüm dokümanın en değerli kısmı. Her madde **ölçümle** bulundu.
+
+### Simülasyon
+1. **Trim şart.** `run_ic()` + `run()` yeterli değil — trim'siz uçak 60
+   saniyede 14–23 bin ft düşüyor. Ölçüldü.
+2. **Rüzgâr/türbülans JSBSim reset'inde temizlenmez.** Önceki bölümün
+   türbülansı açıkken trim yakınsamaz → worker ölür → `BrokenPipeError`.
+   Çözüm: `reset()` başında `set_turbulence(0,0,0)`.
+3. **Yakıt trim'den ÖNCE ayarlanmalı** (trim ağırlığa bağlı).
+4. **JSBSim F-16'nın kendi FLCS'i var.** `fcs/*-cmd-norm` ham yüzey açısı
+   DEĞİL: aileron = yatış *hızı* komutu (1.0 ↔ 180 °/s), elevator =
+   *g-yükü* komutu (−1.0 ↔ +9 g, +0.44 ↔ −4 g), içinde α limiter var.
+5. **`accelerations/n-pilot-z-norm` düz uçuşta −1.0 okur.** İşaret
+   `state_def.state_from_flight` içinde TEK yerde çevriliyor.
+
+### Kontrol / CBF
+6. **Bağıl derece.** 0.1 s'lik tek adımda komutun `alt`/`h_dot` üzerindeki
+   etkisi gürültü seviyesinde (`B[h_dot, γ_cmd] = −0.0005`, işareti bile
+   yanlış). Çözüm: çok adımlı (öngörülü) CBF, `cbf_rows(horizons=...)`.
+7. **Zarf hiyerarşisi:** işletme ⊂ **güvenlik** ⊂ sonlandırma ⊂ fiziksel.
+   - Güvenlik = işletme olursa filtre sürekli tetiklenir (yatış bariyeri
+     müdahaleyi %42'ye çıkarmıştı; kaldırınca %7.5'e düştü).
+   - Güvenlik ⊄ sonlandırma olursa filtre **yanlış sayıyı** korur
+     (Mach bariyeri 0.40, sonlandırma 0.30 idi).
+8. **QP satır ölçeklemesi şart.** Ölçeklenmemiş bariyerlerde satır normları
+   4 mertebe farklıydı; OSQP küçük satırları yok sayıyor, 3000 çağrının
+   241'inde hata veriyordu. Bariyerler `state_def`'te boyutsuzlaştırılıyor,
+   kalkan ayrıca satırları birim norma ölçekliyor ve **otoritesiz satırları
+   atıyor** (`hard_deck@1` gibi).
+9. **`cbf_rows` önbelleklenmeli.** `A^i` ve `S_i` sabittir; her çağrıda
+   yeniden hesaplamak QP'den pahalıydı (800 → 235 µs).
+10. **Kalkan eğitim döngüsünde olmalı.** Sonradan takınca: müdahale %62,
+    maliyet −%14, erken sonlanma 0→4. Döngü içinde: %21, −%2.8, 0.
+
+### RL / ödül
+11. **Gauss şekillendirme uzakta gradyan vermez.** `exp(-(Δh/1000)²)`
+    3000 ft hatada 1e-4 → gizli seyrek ödül. Çözüm: **ilerleme** ödülü
+    (hata bu adımda ne kadar kapandı, fiziksel max hızla normalize).
+12. **Ajan az ağırlıklı kanalı rasyonel olarak yok sayar.** Mach ağırlığı
+    0.5 iken tolerans tutturma %30; 0.9 yapınca **%72**.
+13. **Ulaşılamaz hedef üretme.** Hedef Mach bağımsız çekiliyordu; 42 kft'te
+    taban 0.68 iken 0.55 isteniyordu. Artık irtifaya bağlı + sınırlı
+    rastgele yürüyüş.
+14. **Komut titremesi.** `w_action_rate=0.05` ödüllerin %1'i kadardı;
+    ajan 3 Hz'de bang-bang yapıyordu ve bu **Mach takibini öldürüyordu**
+    (yavaş autothrottle hiç oturamıyor). Çözüm: slew sınırı (yapısal) +
+    ceza 0.30.
+
+
+24. **Kabul kriteri ödülde görünmüyorsa öğrenilmez — ve uzun eğitim ZARAR
+    verir.** Varış kalitesine bağlı ödül, bölüm getirisinin **%0.26'sıydı**
+    (hedef bonusu 16.8/2374; üstelik 10.6'sı koşulsuz). `ep_rew_mean` 1.5M
+    adımda doydu; kalan 6.5M adım kriteri kısıtlamayan %99.7'yi optimize
+    etti ve yakalama kalitesi 0.540 → 0.316'ya düştü. Bir kriteri
+    "önemsiyorsan" ödülde **ölçülebilir bir pay** almalı. Teşhis aracı:
+    `scripts/reward_audit.py` — terim terim fiili dağılım.
+25. **Şekillendirme çekirdeği toleransla aynı ölçekte olmalı.** `alt_prec_ft`
+    1000 iken tolerans ±500'dü: 180 ft hatada ajan ödülün %97'sini zaten
+    alıyordu, son 300 ft'i kapatmanın karşılığı yoktu. Ödülün %32.7'si bu
+    terimlerdeydi, yani en büyük ikinci blok yanlış şeyi söylüyordu.
+26. **SON modeli alma — kabul kriterine göre EN İYİ modeli al.** Bu koşuda
+    son model (8M) 2M'deki modelin yarısı kadar iyiydi. `BestByCaptureQuality`
+    callback'i 250k adımda bir kriteri ölçüp `sac_best.zip` saklar.
+
+27. **Bir filtrenin KAPSAMINI baştan yaz, yoksa iddiayı fazla büyütürsün.**
+    CBF kalkanı 10 Hz'de bir komut yöneticisidir. Ölçüldü: iç döngü komut
+    sınırı −2.0 g iken gerçekleşen en kötü geçici **−4.581 g** — farkı komut
+    değil, rüzgâr darbesi ve dinamik aşım üretiyor. Kalkan bunu yapısı gereği
+    engelleyemez. Savunulabilir cümle: *"komut seviyesinde zarf ihlali üreten
+    girdileri filtreler; 60 Hz dinamik/atmosferik geçici aşımları engellemez."*
+    Bariyeri sıkmak veya sert moda almak bu kuyruğu KAPATMAZ — ikisi de komut
+    seviyesinde çalışır, medyanı iyileştirir, kuyruğa dokunmaz.
+28. **"İhlal oranı" ile "ihlalli bölüm sayısı" farklı şeyler söyler.**
+    Seçilen modelde kalkanlı/kalkansız oran 0.057 vs 0.275 (5 kat) ama
+    ihlalli bölüm 24/150 vs 23/150 (aynı). Doğru yorum: kalkan tehlikeli
+    duruma *girmeyi* engellemiyor, girildiğinde **çıkışı kısaltıyor**.
+    İkisini birlikte raporlamazsan yanlış hikâye anlatırsın.
+29. **Ayrı eğitilmiş iki politikayı kıyaslamak kalkanın etkisini ÖLÇMEZ.**
+    `guidance_shield` vs `guidance_noshield` karşılaştırması kalkanın
+    etkisiyle politika farkını karıştırıyordu ve SAF-05'i "✅, GA'lar
+    örtüşmüyor" göstermişti. AYNI politikayı kalkanlı/kalkansız koşturunca
+    fark kayboldu ve iddia geri çekildi. Doğru ablasyon: tek politika, iki
+    koşul.
+30. **Bir ödül değişikliğinin bedeli tek boyutta olmayabilir.** `r3` kaliteyi
+    0.650 → 0.795 çıkardı, verimi 0.864 → 0.833 düşürdü (biliniyordu) VE zarf
+    ihlallerini 0.014 → 0.057'ye çıkardı (ölçülmemişti, sonradan bulundu).
+    Yeni bir ödül konfigürasyonu seçmeden önce **güvenlik boyutunu da** ölç.
+
+31. **Bir korelasyon gördün diye MEKANIZMAYI bildiğini sanma — bu projede
+    ÜÇ KEZ oldu.** (a) "Agresiflik ihlal üretir" sanıldı; ilişki var ama
+    zayıf (0.000 → 0.002). (b) "İhlaller varış öncesi hassasiyet
+    düzeltmesinden geliyor" denildi — gerekçe, iki kurulum arasındaki tek
+    yapısal farkın varış aşaması olmasıydı; `violation_where.py` ile
+    ÇÜRÜTÜLDÜ (ihlallerin %2'si yakalama yarıçapının 2 katından yakın,
+    medyan menzil tüm adımlarınkiyle aynı). (c) Üçüncü hipotez ölçüldü ve
+    doğrulandı: ihlaller **yatık alçalmada** oluşuyor — alçalma 4.3×,
+    yatış+alçalma 3.5× zenginleşme. Mekanizma iç döngü formülünde:
+    `n = (V·γ̇/g + cos γ)/cos φ`, 55° yatışta 1/cos φ = 1.74.
+    **Ders: "tek yapısal fark şu" akıl yürütmesi delil değildir.**
+32. **Bir açıklama çürüyünce, ONA DAYANAN kararları da geri al.** nz_min
+    referansı 0.042'den 0.001'e indirilmişti; gerekçe "BVR kullanımı stres
+    testine benzer" idi ve bu, çürütülen mekanizmaya dayanıyordu. Gerçek
+    mekanizma yatık alçalma olunca beklenti TERSİNE döner — BVR'da yatık
+    alçalma boldur. Referans düzeltmesi geri alındı, muhafazakâr (yüksek)
+    uç kullanılıyor. Çürüyen açıklamayı düzeltip ona dayanan kararı
+    bırakmak, sessiz bir hata kaynağıdır.
+33. **Açıklayamadığın bir farkı uydurma açıklamayla doldurma.** Stres testi
+    ile hedef yakalamalı ortam arasındaki 20 katlık fark HÂLÂ
+    açıklanamamıştır ve belgede öyle durmaktadır. İlk iki açıklama denemesi
+    de yanlış çıktığı için, üçüncüsünü "makul göründüğü" için yazmak
+    aynı hatayı tekrarlamak olurdu.
+34. **Pahalı katmanı eğitmeden ÖNCE, onun girdi dağılımını taklit et.**
+    Komutanı yeniden eğitmek guidance'tan kat kat pahalı. İç döngüye
+    dokunma kararı, komutan eğitilmeden betikli bir komutanla verildi
+    (`scripts/stress_commander.py`). Sıralamayı ters kurmak, düzeltme
+    maliyetini katlardı.
+
+35. **KOMUTAN ARAYÜZÜ KURALI (TAC-08): sanal hedefi 5–25 nmi'ye koy.**
+    Güdüm katmanı yön komutu değil HEDEF NOKTASI anlar. Komutanın yön
+    komutunu sanal hedefe çevirirken "hiç varmasın diye uzağa koyayım"
+    demek doğal ve YANLIŞ. Ölçüldü: 40 nmi ve ötesinde politika sönümsüz
+    limit çevrimine giriyor (yatış std 30–37°, periyot 12.7 s); 25 nmi'de
+    std 6.4°, çevrim yok. Eğitim aralığı 3.3–14.8 nmi. Mekanizma: uzak
+    hedefte kerteriz uçağın yönüne duyarsız, kurs döngüsünün doğal
+    sönümlemesi kayboluyor. Kanıt: yatış–kerteriz gecikmeli korelasyon
+    r = −0.949 @ 2.2 s.
+36. **Test aracının kendisi ölçümü bozabilir — ve bunu KULLANICI fark etti.**
+    `command_hold_test.py` hedefi 200 nmi'ye koyuyordu, yani GUI-11
+    sözleşmesi eğitim dağılımının DIŞINDA ölçülmüştü. Kullanıcı Tacview'de
+    uçağın sallandığını görüp sordu; ölçünce aracın kusuru çıktı. Araç
+    düzeltildi (30 nmi) ve sonuç 14/14 + 14/14 KORUNDU, sapmalar 33 ft'ten
+    5–6 ft'e indi. Ders: bir aracın ürettiği koşul, ölçtüğü şeyin geçerlilik
+    alanı içinde mi diye sor. Ayrıca **görsel inceleme (Tacview) sayısal
+    metriklerin kaçırdığını yakalar** — irtifa ve Mach metrikleri bu
+    salınımı hiç göstermiyordu.
+
+### Ölçüm (en çok hata yapılan yer)
+15. **Tepe değeri güvenlik metriği değil.** Tek bir −3.37 g örneği
+    "bariyer tutmuyor" gibi görünür; ihlal *oranı* %0.01'di.
+16. **Adımlar bağımsız değil.** Uçak bir bölümde kötü duruma girip 200–900
+    adım orada kalır. Adım bazlı "%ihlal" etkin örneklemi yüzlerce kat
+    abartır. **Birim BÖLÜMDÜR**, belirsizlik bootstrap %95 GA ile verilir.
+    Ölçüm: aynı konfigürasyon farklı tohumlarda %0.048–%1.742 (36 kat).
+19b. **Değerlendirme BLOĞU başlı başına bir karıştırıcıdır.** Aynı üç
+    model, 60 bölümlük iki farklı blokta 0.541/0.571/0.507 ve
+    0.664/0.695/0.605 verdi — fark ~0.10, karşılaştırdığımız etkilerle
+    aynı mertebede. 40–60 bölüm, bölüm zorluğunu ortalamaya yetmiyor.
+    Blok *içi* karşılaştırma geçerli kalır (aynı bölümler), ama **mutlak**
+    kabul kararı tek blokta verilemez. Kabul ölçümü artık **n=200**.
+    (16 no'lu dersin bir üst seviyesi: birim doğru olsa da SAYISI yetersizse
+    sonuç yine kırılgan.)
+17. **Güven aralıkları örtüşen iki konfigürasyon arasında fark iddia edilmez.**
+18. **Adım-içi tepe** izlenmeli (60 Hz), sadece karar sınırında (10 Hz) değil.
+19. **Bariyer muhafazakârlığını ihlal sayma.** Bariyer sabit 25.000 lb
+    varsayar; gerçek ağırlık düşükken uçak daha yavaş uçabilir ve bu
+    tehlikeli değildir. `stall_marg` (gerçek ağırlık) ile `mach_marg`
+    (bariyer) ayrı tutuluyor.
+
+### Altyapı
+20. **Konfigürasyon kopyası = sessiz hata.** `GuidanceConfig.shield_horizons`
+    kalkanın varsayılanını eziyordu; enerji bariyeri eğitimde hiç aktif
+    olmadı ve "çalışmıyor" sonucuna varılmıştı. Artık `None` → tek
+    doğruluk kaynağı kalkanın kendisi.
+21. **`model_best.pkl` gibi tek dosya kırılgan.** Her model açık isimle
+    `data/models/` altına yazılır, config açık yolla seçer.
+22. **TensorBoard kaydı bölüm bitişine bağlanmalı.** Paralel ortamlar
+    senkron bittiği için SB3 log'u tam o anda boşaltır; sabit aralıklı
+    kayıt diske hiç düşmüyordu (9 metrik yerine 30).
+23. **Yavaş değişen durumu poly2 kitaplığına ekleme.** Yakıt eklenince
+    `yakıt×X` terimleri eşdoğrusal oldu, ridge 1e-2'ye fırladı, EDMD-poly2
+    uzun ufukta çöktü (0.155 → 0.246). Fizik kitaplığı etkilenmedi.
+
+---
+
+## 5. Ölçülmüş sonuçlar (referans)
+
+**İç döngü** (4 koşul: 15k/M0.7 … 45k/M1.3) — 16/16 test geçti
+- Roll 0→45°: t_r 0.70–0.77 s, aşım %3–17, kalıcı hata 0.07–0.16°
+- γ 0→+8°: t_r 1.3–2.4 s, aşım %3.5–10, kalıcı hata ≈0
+- Koordineli dönüş 45°/20 s: irtifa değişimi 27–51 ft
+
+**Sistem tanımlama:** 717k geçiş, koşul sayısı 25.6 (kalıcı uyarım ✓)
+
+**Modeller** (1-adım / 20-adım nRMSE, `relift`):
+| model | z_dim | H=1 | H=20 |
+|---|---|---|---|
+| persistence | — | 0.0337 | 0.2878 |
+| DMD | 12 | 0.0192 | 0.1453 |
+| **EDMD-fizik** ← kalkan bunu kullanıyor | 31 | 0.0178 | 0.1481 |
+| EDMD-poly2 | 78 | 0.0176 | 0.2159 |
+| Deep-Koopman + kararlılık | 44 | 0.0158 | **0.1030** |
+
+**Kalkan** (100 bölüm, bölüm-başı, %95 GA):
+| | kalkansız | kalkanlı |
+|---|---|---|
+| `nz_min` ihlal % | 0.044 [0.028, 0.063] | **0.008 [0.003, 0.015]** |
+| `beta_max` ihlalli bölüm | 4/100 | **0/100** |
+| Ödül | 2101 [2028, 2174] | 2106 [2042, 2165] |
+| Müdahale / slack / çözücü hatası | — | %17.6 / %4.2 / 159 |
+
+→ `nz` ihlali **5.5× az**, GA'lar örtüşmüyor, **ödül maliyeti sıfır**.
+
+**Ödül** (`scripts/reward_audit.py`): adım [−2.23, +2.80]; ulaşılabilir
+tavan ≈3260; ölçülen 2479 (%76).
+
+---
+
+## 6. Dosya haritası
+
+```
+bvr/sim/aircraft.py        F-16 sabitleri, FCS sözleşmesi, atmosfer, stall
+bvr/sim/jsbsim_bridge.py   trim, yakıt, türbülans, komut, durum
+bvr/sim/acmi.py            Tacview kaydı
+bvr/control/inner_loop.py  γ→n→elevator, φ→p→aileron, Mach→throttle
+bvr/models/state_def.py    durum/girdi tanımı, sabit ölçekler, bariyerler (C,d)
+bvr/models/base.py         DynamicsModel ABC + cbf_rows() (çok adımlı DT-CBF)
+bvr/models/{dmd,edmd,deep_koopman}.py
+bvr/safety/cbf.py          OSQP komut yöneticisi (satır budama + ölçekleme)
+bvr/safety/robust.py       model hata marjı (park edildi)
+bvr/sysid/{excitation,collect,evaluate}.py
+bvr/envs/guidance_env.py   dış döngü RL ortamı
+bvr/agents/{train_guidance,scripted_guidance}.py
+bvr/config.py              YAML → dataclass (bilinmeyen anahtar = hata)
+
+configs/*.yaml             deney tanımları
+data/models/*.pkl          açık isimli dinamik modeller
+runs/<isim>/config.resolved.yaml   o koşunun TAM ayarları
+```
+
+---
+
+## 7. Komutlar
+
+```bash
+python scripts/reproduce.py --list        # tüm boru hattı
+python scripts/test_inner_loop.py         # iç döngü kabul testi (16)
+python scripts/collect_sysid.py --episodes 600
+python scripts/compare_models.py          # model karşılaştırma tablosu
+python scripts/sweep.py                   # hiperparametre taraması
+python scripts/train.py configs/X.yaml --save-buffer
+python scripts/mission_eval.py <model.zip> -n 40    # görev metrikleri
+python scripts/safety_eval.py -n 100               # güvenlik + GA
+python scripts/reward_audit.py <model.zip>         # ödül ayrıştırma
+python scripts/demo_inner_loop.py         # Tacview kaydı
+tensorboard --logdir runs/tb
+```
+
+---
+
+## 8. BVR fazına taşınacak tasarım notları
+
+1. **Gözlem/aksiyon uzayı en baştan 4 uçaklık son durum için tasarlanacak**,
+   1v1'de maskeli. Aksi halde her aşamada sıfırdan eğitim gerekir — bu,
+   haftalarca GPU zamanı farkı demek.
+2. Komutan **2 Hz** (taktik kararlar saniyeler ölçeğinde; 10 Hz'de kredi
+   ataması 5 kat uzar, karşılığında hiçbir şey kazandırmaz).
+3. Düşman modeli **tak-çıkar**: 3-DOF nokta-kütle (eğitim, 10–50× ucuz) /
+   tam JSBSim (demo).
+4. **Silah kütlesi eklenmeli**: füze atışı ~350 lb ağırlık düşürür.
+   Harici tanklar angajmandan önce atıldığı için modellenmiyor.
+5. Guidance ve kalkan komutan eğitimi boyunca **dondurulmuş** olacak.
+6. Gerçek BVR akışı: tespit → sıralama → commit → atış (Fox-3) → destek →
+   crank → notch/beam → drag/abort → yeniden angajman.
+7. Temel taktik birim **iki uçaklı kol**; dört uçak = iki kol.

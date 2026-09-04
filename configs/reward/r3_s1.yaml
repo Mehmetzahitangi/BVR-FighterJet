@@ -1,0 +1,22 @@
+name: reward_r3_s1
+notes: >
+  TOHUM DOGRULAMASI (tohum 1). r3_both ayarlarinin AYNISI, yalnizca tohum
+  farkli. Amac: 0.818'lik kalitenin gercek mi yoksa sansli bir tohum mu
+  oldugunu olcmek. 8M deneyinde ayni config tohumdan tohuma 0.245-0.457
+  arasinda degismisti -- yani tohum etkisi, olctugumuz farklarla ayni
+  mertebede olabilir. Tek kosuya dayanan bir iddia savunulamaz.
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.5
+  alt_prec_ft: 500.0
+  mach_prec: 0.05
+  r_waypoint: 60.0
+  w_progress: 0.4
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 1
+  eval_n_ep: 30

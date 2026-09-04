@@ -1,0 +1,14 @@
+name: sweep_s7_war015
+notes: >
+  w_action_rate = 0.15. Komut duzgunlugu ile VARIS KALITESI arasindaki
+  odunlesimi tarar: 0.3 -> kalite 0.589, 0.8 -> 0.330 olculdu.
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.15
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

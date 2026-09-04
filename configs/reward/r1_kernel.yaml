@@ -1,0 +1,25 @@
+name: reward_r1_kernel
+notes: >
+  HIPOTEZ 1 -- HEDEFE YAKINKEN EGIM SERTLESIR (ablasyon).
+  Odulun %32.7'si irtifa/Mach hassasiyet terimlerinde. OLCULDU: bu odulun
+  %89.3'u zaten tolerans ICINDE toplaniyor, yani blok yanlis yere
+  gitmiyor -- sorun ODUL KUTLESI degil, EGIM.
+  Cekirdek 1000 ft iken tolerans sinirinda (500 ft) terimin %78'i hala
+  aliniyor; sinirda durmanin bedeli sadece %22. Cekirdek 500 olunca
+  sinirda %37 kalir, bedel %63'e cikar. Yani "son 300 ft'i kapat"
+  baskisi ~4 kat artar.
+  NOT: bu degisiklik kaliteye bagli odul PAYINI degistirmez (%0.50 ->
+  %0.54, olculdu). Tek basina yeterli olmasi BEKLENMIYOR; r3'un hangi
+  bileseninin ise yaradigini ayirmak icin ablasyon olarak kosulur.
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.5
+  alt_prec_ft: 500.0
+  mach_prec: 0.05
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

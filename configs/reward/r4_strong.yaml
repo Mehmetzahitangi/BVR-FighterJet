@@ -1,0 +1,23 @@
+name: reward_r4_strong
+notes: >
+  HIPOTEZ 4 -- DOZ-YANIT. r3'un daha guclu hali: r_waypoint 120,
+  w_progress 0.3. Amac yonun dogru olup olmadigini teyit etmek:
+  r3 > taban VE r4 > r3 ise yon dogrudur ve daha da ileri gidilebilir;
+  r4 < r3 ise tatli nokta r3 civarindadir.
+  RISK: buyuk seyrek bonus kritigi dengesizlestirebilir; ilerleme
+  agirligini 0.3'e cekmek seyrusefer verimini (GUI-02) bozabilir.
+  Ikisi de ikincil olcut olarak raporlanmalidir.
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.5
+  alt_prec_ft: 500.0
+  mach_prec: 0.05
+  r_waypoint: 120.0
+  w_progress: 0.3
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

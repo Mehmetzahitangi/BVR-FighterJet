@@ -1,0 +1,28 @@
+# ============================================================
+# BUYUK VERI
+# ============================================================
+# Egitim ciktilari: 2.4 GB. Yalnizca SECILEN model asagida
+runs/*
+!runs/reward_r3_both/
+runs/reward_r3_both/*
+!runs/reward_r3_both/sac_1999968_steps.zip
+!runs/reward_r3_both/config.resolved.yaml
+
+# Sysid veri setleri 165 MB (sysid_train.npz 123 MB + val 42 MB).
+# Yeniden uretilebilir:  python scripts/collect_sysid.py
+# Ama FIT EDILMIS MODELLER kucuk (536 KB) ve kalkanin calismasi icin
+# ZORUNLU 
+data/*
+!data/models/
+!data/cbf_margins_*.npy
+
+# Eski proje (uctan uca RL denemesi)
+legacy/
+
+
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/
+*.egg-info/
+.ipynb_checkpoints/

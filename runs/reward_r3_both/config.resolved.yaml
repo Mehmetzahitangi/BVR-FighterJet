@@ -1,0 +1,73 @@
+name: reward_r3_both
+notes: 'HIPOTEZ 3 -- IKISI BIRDEN + YOGUN SEKILLENDIRME GERI CEKILIR. Seyrusefer artik
+  cozulmus durumda (verim 0.87-0.89), yani ilerleme teriminin kesif gorevi bitti;
+  tam agirlikta kalmasi yalnizca kalite sinyalini bastiriyor. w_progress 1.0 -> 0.4
+  toplam getiriyi ~2374''ten ~1500''e cekerken, r_waypoint 60 ile kaliteye bagli band
+  ~%2.5''e cikar ve cekirdek hizalamasi da devrede olur. RISK: ilerleme agirligini
+  dusurmek seyrusefer verimini bozabilir -- bu yuzden verim de ikincil olcut olarak
+  raporlanmalidir.
+
+  '
+env:
+  ctrl_hz: 60.0
+  outer_hz: 10.0
+  episode_s: 180.0
+  alt_lo: 10000.0
+  alt_hi: 42000.0
+  wpt_range_lo_ft: 20000.0
+  wpt_range_hi_ft: 90000.0
+  wpt_capture_ft: 3000.0
+  alt_delta_ft: 8000.0
+  mach_lo: 0.55
+  mach_hi: 1.35
+  alt_tol_ft: 500.0
+  mach_tol: 0.05
+  reward_version: 2
+  w_progress: 0.4
+  w_alt_prog: 0.5
+  w_alt_prec: 0.4
+  w_mach_prog: 0.5
+  w_mach_prec: 0.4
+  mach_step_max: 0.25
+  w_alt: 1.0
+  w_mach: 0.5
+  alt_prog_scale_ft: 25.0
+  mach_prog_scale: 0.004
+  alt_prec_ft: 500.0
+  mach_prec: 0.05
+  action_rate_limit: 0.25
+  w_action_rate: 0.5
+  r_waypoint: 60.0
+  r_crash: -10.0
+  term_alpha_deg: 26.0
+  term_beta_deg: 15.0
+  term_nz_hi: 9.5
+  term_nz_lo: -3.5
+  term_mach_lo: 0.3
+  turbulence_prob: 0.3
+  wind_max_fps: 60.0
+  fuel_lo: 0.3
+  fuel_hi: 1.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  shield_gamma: 0.1
+  shield_horizons: null
+  shield_hard: false
+  shield_margin_path: null
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  seed: 0
+  gamma: 0.995
+  learning_rate: 0.0003
+  batch_size: 512
+  buffer_size: 1000000
+  learning_starts: 10000
+  tau: 0.005
+  net_arch:
+  - 256
+  - 256
+  ent_coef: auto
+  device: auto
+  eval_every: 250000
+  eval_n_ep: 12

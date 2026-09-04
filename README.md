@@ -110,18 +110,79 @@ pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu1
 pip install -r requirements.txt
 ```
 
-## Çalıştırma
+## Hızlı başlangıç
+
+Repo klonlandığında **kalkan modeli ve seçilen politika dahildir** —
+hemen koşturulabilir:
 
 ```bash
-python scripts/smoke_trim.py
-python scripts/test_inner_loop.py
-python scripts/demo_inner_loop.py
-python scripts/collect_sysid.py --episodes 600
-python scripts/compare_models.py
-python scripts/train_guidance.py --steps 1000000 --envs 12 --tag v2
-python scripts/eval_guidance.py --model scripted
-python scripts/eval_guidance.py --model runs/guidance_v2/sac_final.zip
+python scripts/test_model.py runs/reward_r3_both/sac_1999968_steps.zip --hold 25000 0.90 --from 30000 0.80 --target-range 30
 ```
+
+Sysid veri setleri (165 MB) repoda değildir; yeniden üretmek için
+`python scripts/collect_sysid.py --episodes 600`.
+
+## Script dizini
+
+Scriptler dört gruba ayrılır. **Değerlendirme ve tanı grupları bu projenin
+asıl katkısıdır** — iddiaların hangi ölçümle desteklendiği oradadır.
+
+### 1 · Yığını kur ve doğrula
+
+| script | ne yapar |
+|---|---|
+| `smoke_trim.py` | trim çalışıyor mu (trimsiz uçak 60 s'de 14–23 kft düşüyordu) |
+| `id_fcs.py` · `id_nz.py` | JSBSim FCS komutlarının gerçek anlamını **ölçer** (dokümana güvenmez) |
+| `test_inner_loop.py` | iç döngü kabul testi — **28 test**, yatık alçalma ve ani ters dönüş dahil |
+| `demo_inner_loop.py` | iç döngü Tacview görselleştirmesi |
+
+### 2 · Veri ve model
+
+| script | ne yapar |
+|---|---|
+| `collect_sysid.py` | tasarlanmış uyarımla veri toplar (kalıcı uyarım doğrulanır) |
+| `fit_model.py` | tek bir Koopman modeli fit eder |
+| `compare_models.py` | DMD / EDMD / Deep-Koopman karşılaştırması |
+
+### 3 · Eğitim
+
+| script | ne yapar |
+|---|---|
+| `train.py` | tek giriş noktası — YAML config alır |
+| `sweep.py` | hiperparametre taraması (**seçim ölçütü kabul kriteriyle aynıdır**) |
+
+### 4 · Değerlendirme — kabul kriterleri
+
+| script | ölçtüğü |
+|---|---|
+| `mission_eval.py` | görev metrikleri: yakalama kalitesi, seyrüsefer verimi (bootstrap %95 GA) |
+| `command_hold_test.py` | **üst katmana verilen sözleşme** — 14 manevrada kalıcı hata |
+| `safety_eval.py` | zarf ihlali + CBF kalkanı ablasyonu (aynı politika, iki koşul) |
+| `eval_guidance.py` | Tacview kaydı üreten değerlendirme |
+
+### 5 · Tanı — bulguların çıktığı yer
+
+| script | cevapladığı soru |
+|---|---|
+| `reward_audit.py` | ödül kalem kalem nereden geliyor? → **kabul kriteri getirinin %0.26'sıydı** |
+| `reward_whatif.py` | bir ödül ayarını **denemeden önce** etkisi ne olur? |
+| `reward_compare.py` | ödül konfigürasyonlarını aynı ölçütle kıyaslar |
+| `violation_depth.py` | zarf ihlalleri ne kadar **derin ve uzun**? |
+| `violation_where.py` | ihlaller **nerede** oluyor? → yatık alçalmada |
+| `violation_cause.py` | rüzgâr mı, dinamik aşım mı? → ikisi de, farklı paylarla |
+| `stress_commander.py` | komutan gelmeden komut dağılımını taklit eder |
+| `diagnose_policy.py` · `margin_sweep.py` · `plot_sweep.py` | politika teşhisi, gürbüz pay taraması, çizim |
+
+### 6 · Elle test ve tekrar üretim
+
+| script | ne yapar |
+|---|---|
+| `test_model.py` | **adım adım log**: hedef ve anlık değer yan yana; `--schedule` ile senaryo |
+| `reproduce.py` | sonuçların tekrar üretimi |
+
+> `test_model.py` kullanırken **`--target-range 25` ver**. Varsayılan 200 nmi
+> eğitim aralığının (3.3–14.8 nmi) çok dışındadır ve politikayı sönümsüz bir
+> kurs çevrimine sokar (bkz. REQUIREMENTS.md → TAC-08).
 
 ## Teknoloji
 

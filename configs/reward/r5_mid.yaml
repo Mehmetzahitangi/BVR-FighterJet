@@ -1,0 +1,25 @@
+name: reward_r5_mid
+notes: >
+  HIPOTEZ 5 -- ARA NOKTA. Ablasyon su iliskiyi gosterdi:
+    w_progress 1.0 (r2) -> verim 0.860, irtifa tutma 11/14
+    w_progress 0.4 (r3) -> verim 0.832, irtifa tutma 14/14
+    w_progress 0.3 (r4) -> verim 0.816, irtifa tutma 14/14, Mach 10/14
+  Verim w_progress ile neredeyse dogrusal; irtifa tutma ise 1.0 ile 0.4
+  arasinda bir yerde doyuyor. 0.7 bu araligin ortasi: verimi 0.85 esiginin
+  ustune tasiyip 14/14 tutmayi koruyabilir.
+  Tek acik kriter (GUI-02) bunu hedefler. Basarisiz olursa r3 secilir ve
+  GUI-02 acikca "saglanmadi" olarak raporlanir -- esik GEVSETILMEZ.
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.5
+  alt_prec_ft: 500.0
+  mach_prec: 0.05
+  r_waypoint: 60.0
+  w_progress: 0.7
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

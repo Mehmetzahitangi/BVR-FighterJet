@@ -1,0 +1,19 @@
+name: guidance_final_s0
+notes: >
+  NIHAI GUIDANCE EGITIMI (tohum 0). Tarama kazanani (DUZELTILMIS olcut = yakalama kalitesi): w_action_rate 0.5.
+  s2_smooth 7 kosunun HEPSINDE birinci oldu (hedef 2.42, odul 2539,
+  ihlal %0.025, sifir erken sonlanma). Not: slew sinirini SIKMAK
+  (s3_slew) en kotu sonucu verdi -- duzgunlugu odulle tesvik etmek
+  ise yariyor, komut yetkisini kisarak dayatmak zarar veriyor.
+
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  w_action_rate: 0.5
+
+sac:
+  total_steps: 8000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

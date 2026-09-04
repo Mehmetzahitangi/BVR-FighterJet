@@ -1,0 +1,16 @@
+name: guidance_shield
+notes: >
+  Guidance + CBF komut yoneticisi (enerji-farkinda: bariyer basina ufuk).
+  Kalkan EGITIM DONGUSUNDE -- sonradan takmak calismiyor (olculdu).
+
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+  shield_gamma: 0.1
+
+sac:
+  total_steps: 1000000
+  n_envs: 12
+  gamma: 0.995
+  seed: 0

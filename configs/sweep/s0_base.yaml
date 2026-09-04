@@ -1,0 +1,13 @@
+env:
+  episode_s: 180.0
+  use_shield: true
+  shield_model_path: data/models/edmd_physics.pkl
+sac:
+  total_steps: 2000000
+  n_envs: 12
+  gamma: 0.995
+  learning_rate: 0.0003
+  batch_size: 512
+  seed: 0
+name: sweep_s0_base
+notes: Guidance hiperparametre taramasi -- taban
