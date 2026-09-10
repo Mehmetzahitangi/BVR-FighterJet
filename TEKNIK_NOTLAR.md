@@ -136,19 +136,51 @@
 
 ## A8. BVR — sıradaki faz 📋
 
-| terim | ne demek |
-|---|---|
-| **BVR** (Beyond Visual Range) | Görüş ötesi hava muharebesi. |
-| **Radar menzil denklemi** | Hedefin ne zaman tespit edileceğini belirleyen dördüncü dereceden ilişki. |
-| **RCS** (Radar Cross Section) | Hedefin radar görünürlüğü; açıya göre değişir. |
-| **Pk** (Probability of Kill) | Füzenin vurma olasılığı. |
-| **NEZ** (No Escape Zone) | Hedefin kaçamayacağı menzil bandı. |
-| **Crank / Notch / Beam** | BVR taktik manevraları: kranking radar kilidini korurken menzil açmak, notching Doppler filtresine yakalanmamak. |
-| **F-pole / A-pole** | Füze uçuşu sırasındaki menzil geometrisi ölçütleri. |
-| **Proportional navigation** | Füze güdüm yasası. |
-| **Element / kol uçuşu** | İki uçaklı taktik birlik. Lider–kanat rol paylaşımı. |
-| **Kredi atama** (credit assignment) | Çok ajanlıda hangi ajanın katkısı olduğunu ayırma sorunu. |
-| **CTDE** | Centralized Training, Decentralized Execution — MARL'ın standart yaklaşımı. |
+**Kilitli kararlar:** füze 3-DOF+PN · radar RCS+Doppler · 2v2'ye hazır altyapı ·
+RWR (MAW değil) · IRST ertelendi · 4 AMRAAM · füze kütlesi modellenecek
+
+| terim | ne demek | durum |
+|---|---|---|
+| **BVR** (Beyond Visual Range) | Görüş ötesi hava muharebesi. | 📋 |
+| **AIM-120 AMRAAM** | F-16'nın standart BVR füzesi. ~335 lb, aktif radar güdümlü. | ✅ karar |
+| **Oransal seyrüsefer (PN)** | Füze güdüm yasası: `a = N·V·λ̇`. Füze, **görüş hattının dönme hızıyla** orantılı ivmelenir. LOS dönmüyorsa çarpışma rotasındasın. | ✅ karar |
+| **LOS dönme hızı** (λ̇) | PN'in tek girdisi. Sıfıra yakınsa çarpışma kaçınılmaz. | 🔬 |
+| **N (seyrüsefer sabiti)** | Genelde 3–5. Büyük N daha agresif ama daha çok enerji harcar. | 🔬 |
+| **Radar menzil denklemi** | `R ∝ ⁴√(P·G²·λ²·σ)` — **dördüncü dereceden**. RCS yarıya inince menzil sadece %16 düşer. | ✅ karar |
+| **RCS** (radar kesit alanı, σ) | Hedefin radar görünürlüğü; **açıya göre büyük ölçüde değişir** (burun-açık vs yan). | ✅ karar |
+| **Doppler ve notching** | Radar, kapanma hızı ~0 olan hedefi yer yankısından ayıramaz. 90°'ye dönmek ("beam/notch") kilidi kırar. **BVR'ın temel taktiği.** | ✅ karar |
+| **Tarama tekrar ziyaret süresi** | Radarın bir noktaya tekrar bakma süresi. ±60°/4 bar ~5–6 s, ±30°/2 bar ~1.5–2 s, ±10°/1 bar <1 s. | ✅ RAD-09 |
+| **M-of-N tespit** | Radar tek dönüşle kilit kurmaz; yanlış alarm elemek için ör. 3 taramada 2 tespit arar. Kilit ~2 tarama periyodu sürer. | ✅ RAD-09 |
+| **Kilit gecikmesi** | Aramadan kilide geçiş, 2.5 s. ✅ uygulandı. **Fiziksel sabit değil, DENGE PARAMETRESİ** — `coast_s` ile birlikte notching'in gücünü belirler, ajanlar çıkınca ölçülüp ayarlanacak. | ⚠️ ayarlanacak |
+| **Coast (kilit hafızası)** | Temas kesilince kilidin sürdüğü süre, 4.0 s. ✅ uygulandı. Notch'u kaç saniye tutman gerektiğini bu belirler. | ⚠️ ayarlanacak |
+| 📋 **Yeniden kilitlenme** | Gerçek radarda tekrar kilit, sıfırdan aramadan hızlıdır (anten nereye bakacağını bilir). Modelde **yok** — coast bitince tam sıfırlama. `reacquire_delay_s < lock_delay_s` olarak eklenebilir. | 📋 ertelendi |
+| **TWS vs STT** | Track-While-Scan birden çok hedefi izler ama zayıf kilit; Single Target Track tek hedefe sürekli aydınlatma — karşı tarafın RWR'ı ikisini **farklı görür**. | 📋 |
+| **RWR** (Radar Warning Receiver) | Radar aydınlatmasını tespit eder. BVR'da füze uyarısı **buradan** gelir. | ✅ karar |
+| ⚠️ **MAW** (Missile Approach Warning) | Füze alevini IR/UV ile görür. **BVR'da işe yaramaz** — AMRAAM 8-10 s yanar, kalan 50+ km'yi süzülür. | ❌ elendi |
+| 📋 **IRST** | Pasif kızılötesi arama-takip. **Notching'i yenmez** → temel taktiği bozar. | 📋 faz 2 |
+| **Pk** (Probability of Kill) | Füzenin vurma olasılığı; menzil, açı ve hedef enerjisine bağlı. | 📋 |
+| **NEZ** (No Escape Zone) | Hedefin kaçamayacağı menzil bandı. | 🔬 |
+| **F-pole / A-pole** | Füze uçarken menzil geometrisi ölçütleri. Crank ederken F-pole korunur. | 🔬 |
+| **Crank** | Radar kilidini korurken menzil açmak için ~50° dönüş. | 🔬 |
+| **Notch / Beam** | 90°'ye dönüp Doppler filtresine yakalanmamak. | 🔬 |
+| **Drag / Abort** | Angajmandan tamamen çıkmak. | 🔬 |
+| **Davranış Ağacı** (Behavior Tree) | Modüler karar yapısı; FSM'den daha iyi kompoze olur, öncelik sırası doğal. Kırmızı takım için. | ✅ karar |
+| 🔬 **PPO** | On-policy; karma aksiyon uzayı ve self-play için SAC'tan uygun. | 📋 |
+| 🔬 **Karma aksiyon uzayı** | Sürekli (yön/irtifa/hız) + kesikli (ateş/hedef/mod) birlikte. | 📋 |
+| 🔬 **Self-play / rakip örnekleme** | Durağan olmama, döngüsel baskınlık (taş-kağıt-makas). | 📋 |
+| 🔬 **CTDE** | Centralized Training, Decentralized Execution — MARL standardı. | 📋 |
+| 🔬 **Kredi atama** | Çok ajanlıda hangi ajanın katkısı olduğunu ayırma. | 📋 |
+
+**Referans projeler:** [BVRGym](https://github.com/xcwoid/BVRGym) (JSBSim F-16 + PN füze,
+[makale](https://arxiv.org/pdf/2403.17533)) · [LAG](https://github.com/liuqh16/LAG)
+(kırmızı/mavi, self-play) · [propNav](https://github.com/gedeschaines/propNav)
+(saf Python 3-DOF PN füze) · [MIT 16.070 PN projesi](https://web.mit.edu/16.070/www/project/PG_missile_navigation.pdf)
+
+> Bunlar **kopyalanmayacak, okunup kendimiz yazacağız** — EDMD-fizik'i
+> Deep-Koopman'a tercih etme gerekçesiyle aynı: denetlenebilirlik. Ayrıca
+> tez katkısı olarak "ortamı kurdum ve doğruladım" ile "başkasının ortamını
+> kullandım" arasında büyük fark var. Bakma amacı **doğrulama**: bizim
+> sayılarımız onlarınkine yakın mı?
 
 ---
 
@@ -567,6 +599,45 @@ kaybolur.
 **Kalıcı çıktı — TAC-08:** komutanın yön komutu sanal hedef olarak
 **5–25 nmi** arasına konacak. Bu, BVR arayüzü yazılırken düşülecek doğal
 bir tuzağı ("hiç varmasın diye uzağa koyayım") önceden kapatıyor.
+
+---
+
+## Adım 16 — BVR öncesi son ölçüm: mühimmat kütlesi
+
+Kararlar kilitlendikten sonra tek açık soru kaldı: **4 AMRAAM (+1.340 lb)
+eklenince dondurulmuş guidance katmanı sözleşmesini hâlâ tutuyor mu?**
+
+JSBSim'den ölçülen gerçek ağırlıklar boş+pilot 17.630 lb, yakıt %30 →
+19.722, yakıt %100 → 24.602. Tam yakıt + tam mühimmat **25.942 lb**, yani
+eğitim üst sınırının **%5.5 üstünde** — dondurulmuş bir katmanı eğitim
+dağılımının dışına çıkarmak, bu projede üç kez tuzağa düşülen tam o şey.
+
+`scripts/payload_check.py` yazıldı, 5 konfigürasyon × 14 manevra:
+
+| konfigürasyon | ağırlık | irtifa | mach |
+|---|---|---|---|
+| referans (0 füze, %60) | 21.813 lb | 14/14 | 14/14 |
+| 0 füze, %100 | 24.602 lb | 14/14 | 14/14 |
+| 4 füze, %30 | 21.062 lb | 14/14 | 14/14 |
+| 4 füze, %60 | 23.153 lb | 14/14 | 14/14 |
+| **4 füze, %100** | **25.942 lb** | **14/14** | **14/14** |
+
+**Hepsi geçti**, ağırlıkla bozulma arasında eğilim yok; en ağır durumda
+irtifa hatası referanstan bile küçük (109 vs 161 ft). Sebep: guidance zaten
+4.880 lb'lik bir ağırlık bandında eğitilmişti (domain randomization) —
+1.340 lb ek yük o bandın %27'si kadar bir genişleme. Ayrıca ağırlık,
+yunuslama tepkisini yavaşlattığı için tutma açısından zararsız.
+
+**İkinci satırı bilerek koydum:** yakıt etkisini füze etkisinden ayırmak
+için. Sadece son satır bozulsaydı sebep dağılım dışına çıkmak olurdu;
+24.602'de de bozulma başlasaydı sorun ağırlığın kendisi olurdu. İkisi
+farklı sonuç doğururdu.
+
+**İki JSBSim tuzağı çıktı:** nokta kütle de `reset()` arasında kalıcı
+(türbülans gibi — ilk ölçümde "yüksüz referans" yüklü çıktı), ve F-16
+modelinde yalnızca `pointmass[0]` kütle dengesine giriyor (`[1]` sessizce
+etkisiz). Kütleyi `[0]`'a eklerken konumu birleşik momenti koruyacak şekilde
+seçmek gerekti, yoksa CG 8.4 inç geriye kayıyor.
 
 ---
 

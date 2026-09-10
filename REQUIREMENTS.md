@@ -638,6 +638,187 @@ yukarıdaki "Ödül–kriter uyumsuzluğu" bölümü.
 | TAC-07 | Kanat uçağı önce scripted, sonra MARL (paylaşılan politika, sıcak başlangıç) |
 | **TAC-08** | **Komutanın yön komutu, sanal hedef olarak 5–25 nmi arasına konacak** |
 
+### BVR fazı — KİLİTLİ KARARLAR (2026-09-04, kullanıcı onayladı)
+
+| # | karar | gerekçe |
+|---|---|---|
+| 1 | **Füze: 3-DOF nokta kütle + oransal seyrüsefer (PN)** | BVRGym/LAG de aynısını kullanıyor; yeterince gerçekçi, eğitim için hızlı |
+| 2 | **Radar: RCS + Doppler/notching dahil** | notching BVR'ın temel taktiği; basit koni+menzil modelde ajan gerçek taktik öğrenemez |
+| 3 | **Altyapı 2v2'ye hazır kurulacak, eğitim 1v1'den başlayacak** | TAC-01 ile tutarlı; sonradan yeniden yazmamak için |
+| 4 | **Füze uyarısı MAW değil RWR** | ↓ aşağıya bak |
+| 5 | **IRST faz 2'ye ertelendi** | ↓ aşağıya bak |
+| 6 | **4 AMRAAM** | 2 taktik derinlik vermiyor, 6 mühimmat yönetimini önemsizleştiriyor |
+| 7 | **Füze kütlesi modellenecek** | ölçüldü, sözleşme korunuyor (aşağıdaki tablo) |
+
+**4 — neden MAW değil RWR.** MAW füzenin egzoz alevini görür; AMRAAM roketi
+~8–10 s yanar biter ve kalan 50+ km'yi süzülerek gelir, yani görünecek alev
+yoktur. BVR'da uyarı zinciri şudur:
+
+| aşama | RWR ne görür |
+|---|---|
+| düşman kilitler | **spike** — kilitlendiğini bilirsin |
+| füze atılır | **hiçbir şey** — ataletsel gidiyor |
+| füze son safhada aktif olur | **yeni tehdit** — füzenin kendi radarı |
+
+Bu belirsizlik penceresi BVR'ı ilginç yapan şeydir. MAW koymak onu yok eder
+ve ajan füzeyi anında görüp kaçar.
+
+**5 — neden IRST ertelendi.** IRST pasiftir ve **notching'i yenmez** — yani
+en temel BVR taktiğini işlevsiz kılar. Ayrıca F-16'da standart değildir
+(Blok 70 / pod hariç). Önce radar+RWR ile çalışan bir sistem kurulacak;
+IRST eklenirse "bazı senaryolarda var" biçiminde olacak ki ajan iki duruma
+da hazırlansın.
+
+### Muhimmat kütlesi — dondurulmuş guidance hâlâ sözleşmesini tutuyor mu?
+
+`scripts/payload_check.py` · AMRAAM 335 lb/adet · 14 manevra × 90 s
+
+JSBSim'den ölçülen gerçek ağırlıklar: boş+pilot 17.630 lb, yakıt %30 →
+19.722 lb, yakıt %100 → 24.602 lb. 4 AMRAAM = +1.340 lb, yani tam yakıt +
+tam mühimmat **25.942 lb** — eğitim üst sınırının **%5.5 üstünde**.
+
+| konfigürasyon | ağırlık | irtifa | mach | en kötü irtifa |
+|---|---|---|---|---|
+| referans: 0 füze, yakıt %60 | 21.813 lb | 14/14 | 14/14 | 161 ft |
+| 0 füze, yakıt %100 | 24.602 lb | 14/14 | 14/14 | 146 ft |
+| 4 füze, yakıt %30 | 21.062 lb | 14/14 | 14/14 | 181 ft |
+| 4 füze, yakıt %60 | 23.153 lb | 14/14 | 14/14 | 161 ft |
+| **4 füze, yakıt %100 (en ağır)** | **25.942 lb** | **14/14** | **14/14** | **109 ft** |
+
+**Beşinde de 14/14 + 14/14.** Ağırlık ile bozulma arasında eğilim **yok**;
+en ağır durumda irtifa hatası referanstan bile küçük. Sebep: guidance zaten
+yakıt %30–100 aralığında, yani **4.880 lb'lik bir ağırlık bandında**
+eğitildi (domain randomization). 1.340 lb ek yük o bandın %27'si kadar bir
+genişleme — görülmemiş bir rejim değil. Ayrıca ağırlık uçağın yunuslama
+tepkisini **yavaşlatır**, bu da tutma açısından zararsızdır.
+
+> **KARAR: füze kütlesi modellenir, guidance yeniden EĞİTİLMEZ.** Seçenek B
+> (önce ölç) uygulandı, C (yeniden eğit) gerekmedi.
+
+#### ⚠️ YAN BULGU: mühimmat, Mach tabanı bariyerinin varsayımını ihlal ediyor
+
+`aircraft.py` içinde `COMBAT_WEIGHT_LB = 25000` **bilerek "en ağır durum"**
+seçilmişti ve `MACH_FLOOR_A/B` doğrusal fiti buna göre üretildi. 4 AMRAAM +
+tam yakıt = **25.942 lb**, yani varsayılandan **942 lb ağır**. Bariyer o
+köşede muhafazakâr olmaktan çıkıp iyimser olur.
+
+| irtifa | bariyer tabanı | 1.25×stall @25000 | 1.25×stall @yüklü | pay |
+|---|---|---|---|---|
+| **10.000** | 0.3246 | 0.3263 | 0.3324 | **−0.0078** ❌ |
+| 15.000 | 0.3800 | 0.3603 | 0.3670 | +0.0130 |
+| 20.000 | 0.4353 | 0.3992 | 0.4067 | +0.0286 |
+| 25.000 | 0.4907 | 0.4443 | 0.4526 | +0.0381 |
+| 30.000 | 0.5460 | 0.4966 | 0.5059 | +0.0401 |
+| 35.000 | 0.6014 | 0.5579 | 0.5683 | +0.0330 |
+| 42.000 | 0.6788 | 0.6601 | 0.6724 | +0.0065 |
+
+**Yalnızca 10.000 ft'te bariyer yüklü uçağı kapsamıyor** (1/7 irtifa).
+
+**İkinci bulgu:** 10 kft'te bariyer **varsayılan ağırlıkta bile** 0.0017
+yetersiz. Yani bu tamamen mühimmatın sonucu değil — doğrusal fit alçak uçta
+zaten kısa kalıyor, mühimmat onu −0.0078'e büyütüyor.
+
+**Ciddiyeti:** uçak stall'a **girmiyor**. 10 kft'te yüklü gerçek stall
+0.266, bariyer 0.325. Kaybedilen şey manevra payı: `STALL_MARGIN_FACTOR`
+fiilen 1.25 → **1.22** oluyor (%2.4 daralma).
+
+**KARAR: şimdilik düzeltilmiyor, belgelenip izleniyor.** Gerekçe: Mach
+tabanı bariyerinin zaten **ölçülebilir etkisi gösterilemedi** (SAF-07 açık).
+Etkisi olmayan bir bariyeri %2.4 sıkmak için dondurulmuş katmanı açıp tüm
+doğrulamayı tekrarlamak orantısız.
+
+> **BVR izleme listesine eklendi.** BVR'da alçak irtifa gerçekten kullanılır
+> (alçalarak notch, drag). Komutan zamanının önemli kısmını **15 kft
+> altında** geçirirse bu yeniden değerlendirilmeli. Düzeltme yolu:
+> `COMBAT_WEIGHT_LB` → 26.000 ve `MACH_FLOOR_A/B` yeniden fit; ardından
+> GUI-11 ve SAF ölçümleri tekrarlanır.
+
+**İki uygulama ayrıntısı:**
+- F-16 modelinde yalnızca `pointmass[0]` (pilot, 230 lb @ X=−336.2) kütle
+  dengesine girer; `[1]` yazılabilir ama **etkisizdir**. Mühimmat kütlesi
+  `[0]`'a eklenir ve konumu **birleşik momenti koruyacak** şekilde seçilir —
+  aksi halde CG 8.4 inç geriye kayar ve gevşek kararlı bir uçakta ölçüm
+  yanlı olur. Doğru kurulumda CG −190.94 → −190.95.
+- **Nokta kütle `reset()` arasında KALICIDIR** (türbülans gibi). Referans
+  koşuya geçerken açıkça sıfırlanmazsa "yüksüz" ölçüm yüklü çıkar — bu betik
+  yazılırken tam olarak bu hata yapıldı ve yakalandı.
+
+## 7. Radar (RAD) — Faz 1.2
+
+`bvr/combat/radar.py` · APG-68 referanslı, açık kaynak tahmini değerlerle.
+
+| ID | Gereksinim | Değer / kriter | Durum |
+|---|---|---|---|
+| RAD-01 | Tespit menzili RCS ile **dördüncü kök** ölçeklenir | `R = R_ref·(σ/σ_ref)^¼` | ✅ |
+| RAD-02 | RCS **açıya bağlı** olacak | kuyruk 4 · beam 50 · burun 2 m² | ✅ |
+| RAD-03 | Gimbal sınırı | az ±60°, el ±60° | ✅ |
+| RAD-04 | Doppler notch | `\|Vc\| < 100 fps` → elenir | ✅ |
+| RAD-05 | Notch **yalnızca aşağı bakışta** çalışacak | hedef yukarıdaysa yer yankısı yok | ✅ |
+| RAD-06 | Temas kesilince kilit **coast** edecek | 4.0 s | ✅ |
+| RAD-07 | Gimbal kaybında coast **işletilmeyecek** | mekanik körlük ≠ sinyal kaybı | ✅ |
+| RAD-08 | Çok hedefli durum **hedefe özel** tutulacak | `target_id` anahtarlı | ✅ |
+| RAD-09 | Kilit kurma **gecikmeli** olacak | 2.5 s | ✅ |
+| RAD-10 | Gecikme sırasında temas kesilirse ilerleme **azalacak**, sıfırlanmayacak | `decay = 1.0` | ✅ |
+| RAD-11 | Kilit kaybında (coast bitişi) ilerleme **tam sıfırlanacak** | ARAMA'ya dönüş | ✅ |
+
+**Ölçülen davranış** (`bvr/combat/tests/test_radar.py`, 20/20 test):
+
+| senaryo | sonuç |
+|---|---|
+| 2.0 s sürekli tespit | kilit yok, `reason="acquiring"` ✅ |
+| 3.0 s sürekli tespit | kilit ✅ |
+| 2.0 tespit → 1.0 kayıp → 2.0 tespit (net 3.0) | kilit ✅ azalma çalışıyor |
+| 2.0 tespit → 2.5 kayıp → 0.4 tespit | kilit yok ✅ taban 0'da |
+| kilit → coast bitti → hedef döndü | anında kilit yok, 2.5 s daha ✅ |
+| ARAMA sırasında gimbal | ilerleme sıfırlandı ✅ |
+| **kilitliyken kısa kesinti** | `coast` kullanılıyor, `progress` değil ✅ |
+
+Son satır kritikti: iki mekanizma (ARAMA ilerlemesi ve KİLİT coast'ı)
+birbirine karışmamalı. Durum makinesi `if state.tracked` ile önce ayırıyor.
+
+### RAD-09/10 — kilit gecikmesi: neden bu değerler, ve neden bunlar SABİT DEĞİL
+
+**Fiziksel dayanak.** Radar tarama yapar; bir noktayı tekrar ziyaret süresi
+tarama desenine bağlıdır: ±60°/4 bar geniş arama ~5–6 s, ±30°/2 bar ~1.5–2 s,
+±10°/1 bar < 1 s. Üstüne radar tek dönüşle kilit kurmaz — yanlış alarm elemek
+için **M-of-N** mantığı vardır (ör. 3 taramada 2 tespit), yani ~2 tarama
+periyodu gerekir. BVR'da hedefin kabaca yeri bilinir ve tarama daraltılır →
+gerçekçi çalışma aralığı **2–4 s**. Varsayılan **2.5 s**.
+
+**Neden sert sıfırlama değil, azalma.** İki gerekçe:
+1. *Fizik:* M-of-N zaten kayan penceredir; bir taramayı kaçırmak süreci
+   sıfırlamaz, geriye götürür.
+2. *Bu projeye özgü:* sert sıfırlama **kırılgan bir eşik** yaratır. Tespit
+   menzilinin veya notch'un sınırında titreşen bir hedef, her kaçırmada
+   sıfırlandığı için asla kilitlenemez; ajan bunu keşfedip fiziksel olmayan
+   bir sömürü öğrenir. Bu projede kırılgan eşiklerin sorun çıkardığı ölçüldü
+   (yatış bariyeri %42 müdahale; ödül çekirdeği–tolerans uyumsuzluğu).
+   Azalma modeli düzgün gradyan verir: **kısmi notch → kısmi bozulma.**
+
+> ⚠️ **BU SAYILAR DENGE PARAMETRESİDİR, FİZİKSEL SABİT DEĞİL.**
+> `lock_delay_s` ve `coast_s` birlikte notching'in gücünü belirler:
+>
+> | ayar | sonuç |
+> |---|---|
+> | uzun gecikme + kısa coast | notch çok güçlü, kaçmak kolay |
+> | kısa gecikme + uzun coast | notch neredeyse işe yaramaz |
+>
+> 2.5 / 4.0 **makul bir başlangıç**, doğru değer değil. Ajanlar ortaya
+> çıkınca ölçülüp ayarlanacak. "Bu sayı nereden geldi?" sorusunun cevabı
+> budur: gerekçeli bir başlangıç tahmini, ölçülmüş bir sonuç değil.
+
+### 📋 Ertelenen: yeniden kilitlenme gecikmesi
+
+Gerçek radarlarda **yeniden kilitlenme**, sıfırdan aramadan hızlıdır —
+antenin nereye bakacağı bilinir (hedefin tahmin edilen konumu). Şu anki
+model coast bitince ilerlemeyi **tam sıfırlıyor**, yani yeniden kilit
+sıfırdan aramayla aynı maliyette.
+
+Eklenecekse: `reacquire_delay_s < lock_delay_s` (ör. 1.0 s), coast'tan
+düşülen hedefler için kısa süre geçerli bir "sıcak" durum. **Şimdilik
+gerekmiyor** — önce temel davranış ölçülsün. Notching'in gücü fazla
+çıkarsa ilk başvurulacak ayarlardan biri budur.
+
 ### TAC-08 — KOMUTAN ARAYÜZÜ TASARIM KURALI ⚠️
 
 **Kural: komutanın verdiği yön komutu, güdüm katmanına sanal bir hedef
@@ -676,6 +857,267 @@ iddiası zayıflamadı, **güçlendi**.
 > dışına çıkarıldığında beklenmedik davranıyor (bkz. HANDOFF tuzak 31).
 > Komutanın komut dağılımı da eğitimden farklı olacak; TAC-08 bilinen bir
 > tuzağı kapatır, dağılım kayması riskini tümüyle ortadan kaldırmaz.
+
+## 8. Füze (MSL) — Faz 1.3
+
+`bvr/combat/missile.py` · 3-DOF nokta kütle + True PN, AMRAAM tipi açık kaynak tahmini değerlerle.
+
+| ID | Gereksinim | Değer / kriter | Durum |
+|---|---|---|---|
+| MSL-01 | Güdüm: **3D True PN** | `a⃗ = N·Vc·(ω⃗ × û)` | ✅ |
+| MSL-02 | İtki/sürükleme: boost→coast, `Cd(M)` transonik tepeli | boost 9 s, tepe M≈1.15 | ✅ |
+| MSL-03 | Komut ivmesi **max_g'yi aşamaz** | 30 g, gerçek doğrulamalı test | ✅ |
+| MSL-04 | Yerçekimi **telafili** manevra bütçesinden uygulanır | gizli bozan değil | ✅ |
+| MSL-05 | Pitbull menzilinde füze **bağımsızlaşır** | 8 nmi, kendi tahmini menzile göre | ✅ |
+| MSL-06 | Datalink kesintisi **hafızalı** (kademeli), anlık ölüm değil | `datalink_memory_s = 5.0` (10.0 denendi, geri alındı — bkz. MSL-09) | ✅ |
+| MSL-07 | Sonlanma (isabet/ıska) **gerçek** hedef konumuna göre karar verilir | füzenin inancına göre değil | ✅ |
+| MSL-08 | Segment bazlı CPA — ayrık adımlar arası "atlama" (tunneling) önlenir | sürekli enterpolasyon | ✅ |
+| MSL-09 | Pitbull **otomatik bağımsızlık değildir** — seeker hedefi kendi sepetinde (FOV) ve menzilinde yakalamalı | FOV 30°, menzil 10 nmi — **bilerek atıl bırakıldı, SAF-07 kategorisi** | ⬜ |
+
+### MSL-06 — datalink hafızası: neden anlık ölüm değil
+
+**Fiziksel dayanak.** AMRAAM orta safhada ataletsel uçar; atan uçağın datalink
+güncellemesi konum tahminini *iyileştirir*, **varlığı şart değildir**. Füze
+birkaç saniye güncelleme almadan uçabilir — hata yalnızca zamanla ve hedefin
+gerçek manevrasıyla büyür, anlık bir bilgi kaybı füzeyi köreltmez.
+
+**Bu projeye özgü gerekçe — RAD-09/10 ile birebir aynı kalıp.** Radar
+gimbal aşımında kilidi anında bırakır (coast yok, bilinçli bir karar —
+mekanik körlük gerçekten anlık). Ama bu, crank'i bir an fazla sertleştirmenin
+füzeyi **anında** öldürmesi anlamına gelmemeli — gerçekte birkaç saniyelik
+pay vardır ve kilit geri kazanılabilir. Eski davranış (`datalink_ok=False` →
+anında `"kor"`) tam olarak RAD-09/10'da bilerek kaçındığımız kırılgan eşik
+kalıbının füze tarafındaki (daha sert) hali.
+
+**Uygulama:** `datalink_ok=False` iken füze son bilinen hedef konumundan
+**sabit hızla ekstrapole ederek** (ataletsel) uçmaya devam eder; sayaç
+`datalink_memory_s` kadar geri sayar, biterse `"kor"`. Sonlanma kararı
+(isabet/ıska) her zaman **gerçek** hedef konumuna göre verilir — füzenin
+inandığı (ekstrapole edilmiş) konum sadece güdümü besler, fizik gerçeği
+değiştirmez.
+
+> ⚠️ **Bu da RAD-09/10 gibi bir DENGE PARAMETRESİDİR.** `datalink_memory_s`
+> ile `radar.coast_s`/`gimbal_az_deg` birlikte "crank ne kadar sert
+> yapılabilir" sorusunun cevabını belirler. 5.0 s gerekçeli bir başlangıç
+> tahmini, ölçülmüş bir sonuç değil.
+
+### MSL-09 — pitbull sadece bir eşik değil, bir yakalama olayıdır
+
+**Bulunan hata.** İlk uygulamada pitbull'a girmek füzeyi otomatik olarak
+"bağımsız" sayıyordu — datalink sayacı sıfırlanıyordu ama füzenin **inandığı**
+hedef konumu tazelenmiyordu. Sonuç: datalink erken kesilmiş bir füze,
+pitbull'a girdikten SONRA bile eski (bayat) ekstrapolasyonla uçmaya devam
+ediyordu — ne gerçekten kör (`"kor"` dönmüyor, sayaç pitbull'da anlamsız
+kılınıyor) ne gerçekten bağımsız (hâlâ eski veriyle güdülüyor). Ölçüldü:
+datalink pitbull'dan 2 s önce kesilip hedef 7g manevra yaptığında inanç
+hatası pitbull'a girerken 0 iken sonrasında **22.016 ft (3.6 nmi)**'ye kadar
+büyümeye devam ediyordu.
+
+**Düzeltme.** Pitbull'a giriş artık sadece bir menzil eşiği değil, bir
+**yakalama denemesi**: aktif radar hedefi kendi burun sepetinde (±30° FOV)
+VE kendi menzilinde (10 nmi) görmedikçe inanç tazelenmez, füze kör
+ekstrapolasyona devam eder ve **her adım tekrar dener**. Yakaladığı an
+inanç gerçeğe eşitlenir ve o andan sonra sürekli tazelenir (aktif radar
+artık kesintisiz izliyor varsayımı).
+
+**Taktik sonucu — bilinçli bir tasarım tercihi.** Bu, "füzeni pitbull'a
+kadar destekle" kuralını basit bir ikili sonuçtan (ya pitbull öncesi
+ölürsün ya kesin isabet) **kısmi destek → kısmi isabet olasılığı**na
+çeviriyor: datalink'i erken kesersen inanç kayar, pitbull anında hedef
+sepetin dışında kalabilir, füze temiz ıskalar — tıpkı radarın kilit
+ilerlemesinde sert sıfırlama yerine kademeli azalmayı seçmemizle aynı
+gerekçeyle (RAD-09/10).
+
+**⬜ Ölçüldü: bu gradyan İŞLEMİYOR — SAF-07 ile aynı kategori (var,
+fiziksel olarak doğru, ölçülebilir etkisi gösterilemedi).** Farklı
+geometrilerde (head-on, yandan, çapraz; manevrasız ve 7g manevralı hedef)
+pitbull anındaki gerçek off-boresight açısı, `datalink_memory_s=5.0` iken:
+
+| geometri | manevrasız | 7g manevra |
+|---|---|---|
+| head-on | 0.0° | 11.1° |
+| yandan | 17.0° | 6.8° |
+| çapraz | 12.5° | 13.1° |
+
+Hepsi 30°'lik sepetin belirgin şekilde içinde. **Sebep:**
+`datalink_memory_s=5.0`, inanç hatası sepeti aşacak kadar (≳4.6 nmi, bkz.
+yukarıdaki hesap) büyümeden füzeyi zaten `"kor"` yapıp öldürüyor.
+
+**Denenen düzeltme ve neden geri alındı.** Hipotez: "hafıza süresini
+uzatırsak (5.0→10.0) inanç hatası büyümeye daha çok zaman bulur, sepeti
+aşar." Uygulanıp ölçüldü — **hipotez çürüdü:**
+
+| kesinti (pitbull'dan önce) | off-boresight | sonuç |
+|---|---|---|
+| 4 s | 1.9° | isabet |
+| 8 s | 5.5° | isabet |
+| 10 s | 6.7° | isabet |
+| 12 s | pitbull'a hiç varamadı | kor |
+
+En kötü durumda bile 6.7° — 30°'lik sepetin çok altında. **Hafızayı
+uzatmak açıyı büyütmüyor, sadece füzenin daha uzun süre "kör ama hayatta"
+kalmasını sağlıyor** — inanç hatasının büyüme hızı, kapanma geometrisi
+tarafından belirleniyor, hafıza süresi tarafından değil. Üstelik bunun
+**gerçek bir bedeli** ölçüldü: `datalink_memory_s=10.0`, 25 nmi'lik bir
+atışta (~29 s uçuş) füzeni desteksiz bırakabileceğin süreyi ~%34'ten
+~%69'a çıkarıp "füzeni pitbull'a kadar destekle" kuralını belirgin biçimde
+gevşetiyordu — kazanç sıfır, bedel gerçek. **Bu yüzden `datalink_memory_s`
+5.0'a geri alındı** (`HANDOFF.md` tuzak #32 ile aynı ders: bir açıklama
+çürüyünce ona dayanan karar da geri alınır).
+
+**Kalan seçenek ve neden uygulanmıyor.** Sepeti canlandırmanın tek kalan
+yolu `seeker_fov_deg`'i (30°→10-15°) veya `seeker_range_nm`'i daraltmak —
+ama bu fiziksel olarak zorlama olur, gerçek AMRAAM seeker'ı geniş
+sepetlidir; sırf testi geçirmek için gerçekçi olmayan bir sayı seçmek
+olurdu.
+
+**Karar: MSL-09 bilinçli olarak atıl bırakılıyor.** Kod doğru, mekanizma
+fiziksel olarak savunulabilir, ama mevcut geometri/parametre rejiminde
+hiçbir zaman devreye girmiyor — tıpkı SAF-07'nin enerji bariyeri gibi.
+Zorla "çalıştırmaya" çalışmak (ne hafızayı büyütüp ne sepeti daraltarak)
+gerçekçiliği bozmadan başarılamadı. Faz 2'de gerçek komutan/ajan
+davranışları ortaya çıkınca (özellikle daha agresif crank/notch
+manevraları) bu tablo değişebilir — o zaman yeniden ölçülmeli.
+
+### 📋 Bilinen basitleştirme: `max_g` sabit
+
+Gerçekte kullanılabilir manevra kabiliyeti dinamik basınca bağlıdır
+(`q̄ = ½ρV²`) — yüksekte ve yavaşken füze yapısal `max_g`'yi çekemez, kanat
+otoritesi düşer. Şu anki model bunu kaba bir eşikle (`min_speed_mach = 1.5`
+altında manevra tamamen biter) temsil ediyor; M4 ile M1.5 arasında manevra
+kabiliyeti **sabit** kalıyor, bu gerçekçi değil.
+
+**Şimdilik düzeltilmiyor** — enerji hikâyesi (kriter 1-2, azami/etkili
+menzil farkı) mevcut haliyle doğru çıkıyor, ek karmaşıklık şu an
+gerekçesiz. **Ajanlar öğrenmeye başlayınca "azami menzilden at, yine de
+sert dönerim" gibi fiziksel olmayan bir strateji keşfederlerse ilk
+bakılacak yer burasıdır.**
+
+## 9. Angajman Muhasebesi (ENG) — Faz 1.4
+
+`bvr/combat/engagement.py` · geometri + radar + füzeyi "kim neyi ne zaman
+yapabilir" kurallarıyla birbirine bağlayan muhasebe katmanı.
+
+| ID | Gereksinim | Durum |
+|---|---|---|
+| ENG-01…08 | Kabul kriterleri 1-8 (kilit/menzil/mühimmat/doygunluk/kütle/datalink/isabet/bağımsızlık) | ✅ 8/8 |
+| ENG-09 | Ölü hedefe ikinci kez "isabet" **yazılmaz** | ✅ |
+| ENG-10 | Füze fiziği dış (10 Hz) muhasebe adımından **bağımsız**, kendi içinde alt-adımlı çalışır | `missile_substeps=5` (50 Hz) | ✅ |
+
+### ENG-09 — çifte imha: ölü hedef füze güdemez
+
+**Bulunan hata.** Aynı hedefe iki füze atıldığında, ilki isabet edip hedefi
+düşürdükten sonra **ikincisi de "isabet" olayı üretiyordu** — ölü bir
+uçağa ikinci kez vurulmuş sayılıyordu. Sebep: füze güncelleme döngüsü
+`t_entry`'nin var olup olmadığına bakıyordu (`alive=False` olsa bile hâlâ
+"var"), füze ölü uçağın durumuna karşı güdülmeye devam edip CPA eşiğini
+geçince "isabet" yazıyordu.
+
+**Neden önemli — sadece muhasebe değil.** Taktik komutan (Faz 2) "isabet"
+başına ödül alacak. Bu haliyle ajan, zaten düşmüş bir hedefe fazladan füze
+atarak ödül toplamayı öğrenebilirdi — bu projede ödül uyumsuzluğunun ne
+yaptığını (`HANDOFF.md` tuzak #24) bir kez gördük; bunu şimdi kapatmak
+sonradan teşhis etmekten çok ucuz.
+
+**Fizik de bunu destekliyor:** hedef patladıysa ikinci füzenin güdeceği
+bir şey kalmaz, enkazın içinden geçer.
+
+**Düzeltme.** Füze güncelleme döngüsünün başında `t_entry.alive` kontrol
+edilir; hedef zaten imha olmuşsa füze `alive=False, result="hedefsiz"`
+olarak sonlandırılır, `"isabet"` yazılmaz. `"hedefsiz"` sonucu bilinçli
+olarak `"iska"`dan ayrı tutuldu — sonraki analizde "boşa harcanan mühimmat"
+ile "kaçırılan atış" ayrımı korunur. Regresyon: `test_9_olu_hedefe_ikinci_fuze_hedefsiz_olur`.
+
+### ENG-10 — 10 Hz muhasebe adımı füze fiziği için yetersiz, alt-adımlandı
+
+**Soru.** `Engagement` 10 Hz'de çalışıyor (guidance ile aynı hız). Füze
+fiziğini de aynı 10 Hz ile mi güncellemeli, yoksa kendi içinde daha ince
+adımlarla mı?
+
+**Ölçüldü (`scripts/missile_dt_convergence.py`).** Manevrasız bir hedefe
+karşı `dt` önemsizdi (PN neredeyse sıfır ıskaya yakınsıyor). Ama **6g
+sürekli manevra yapan, marjinal bir angajmanda** sonuç `dt`'ye göre
+**monoton olmayan** şekilde değişti:
+
+| dt | Hz | sonuç | min menzil (ft) |
+|---|---|---|---|
+| 0.002 | 500 | isabet | 30.14 (sınırda) |
+| 0.02 | 50 | isabet | 22.49 |
+| **0.05** | **20** | **ISKA** | **52.09** |
+| 0.1 | 10 | isabet | 4.45 |
+
+**Gerçek Python ile doğrulandı** (`scripts/missile_dt_convergence.py`, `bvr.combat.missile.Missile` doğrudan çalıştırılarak) — yukarıdaki sayılar tahmini değil, ölçülmüş.
+
+500 Hz'den 50 Hz'e kadar hep isabet iken tam 20 Hz'de temiz bir ıska
+çıkıyor, 10 Hz'de tekrar isabete dönüyor — yani **10 Hz'in "yeterli" olduğu
+iddia edilemez**, sonuç kabaca rastgele bir rejimde. Olası mekanizma:
+MSL-08'in sürekli CPA hesabı adım içinde **doğrusal** hedef hareketi
+varsayıyor; hedef gerçekten ivmeleniyorsa (6g) bu varsayım her adımda
+farklı miktarda bozuluyor.
+
+**Karar: füze fiziği `Engagement`'ın 10 Hz adımından bağımsız, kendi
+içinde `missile_substeps=5` (50 Hz) alt-adımla çalışıyor.** Hedefin
+konum/hızı iki tik arasında doğrusal enterpole edilir (aynı varsayım,
+bir seviye yukarıda). Radar/muhasebe mantığına dokunulmadı — onların
+zaman sabitleri (`coast_s`, `lock_delay_s`) saniyeler mertebesinde, 10 Hz
+onlar için fazlasıyla yeterli; sorun yalnızca füzenin kendi PN döngüsündeydi.
+
+> ⚠️ **`missile_substeps=5` de bir denge/doğruluk parametresidir, kanıtlanmış
+> alt sınır değil.** Tabloda 50 Hz ile 500 Hz arasındaki fark, 20 Hz ile
+> aralarındaki farktan belirgin şekilde küçük — makul bir güvenlik payı
+> ama "yeterli" olduğu ayrıca kanıtlanmadı. Taktik komutan daha agresif
+> (>6g) manevralar üretmeye başlarsa `scripts/missile_dt_convergence.py`
+> yeniden çalıştırılıp `missile_substeps` gerekirse artırılmalı.
+
+## 10. Çok Uçaklı Simülasyon (SIM2) — Faz 1.5
+
+Kapsam: yeni fizik yok, zorluk bağlantıda. Sıra: 1.5a (iki JSBSim yan yana)
+→ 1.5b (guidance ikisini birden sürsün) → 1.5c (muhasebe bağlansın, 1v1) →
+1.5d (Tacview çoklu nesne) → 1.5e (2v2, 4 uçak × 4 AMRAAM = 16 kapasite).
+
+### SIM2-01 — 1.5a: iki JSBSim örneği arasında sızıntı yok (ölçüldü)
+
+**Soru.** Türbülans ve nokta kütlenin **bir örnek İÇİNDE** `reset()`
+çağrıları arasında kalıcı olduğu biliniyor (`HANDOFF.md` tuzak 2, 37).
+Ama iki **AYRI** `F16Sim` nesnesi arasında paylaşılan/sızan bir durum
+olup olmadığı hiç sınanmamıştı.
+
+**Ölçüldü** (`scripts/two_jsbsim_smoke.py`): iki `F16Sim`, aynı koşulda
+(20 kft, M0.8, düz) trim edilip 60 s düz uçuşla (İç Döngü, `phi=0,
+gamma=0`) sürüldü — biri diğeri hâlâ bellekteyken açılıp çalıştırıldı.
+
+| örnek | başlangıç | final | sapma (final) | sapma (tepe) |
+|---|---|---|---|---|
+| A (tek başına) | 20000.0 ft | 20004.4 ft | 4.43 ft | 4.43 ft |
+| B (A açıkken sonra) | 20000.0 ft | 20004.4 ft | 4.43 ft | 4.43 ft |
+
+**A ve B'nin sonucu birbirinin BİREBİR AYNISI (fark 0.00 ft) — sızıntı
+yok.** İki `F16Sim` nesnesi birbirinden tamamen bağımsız.
+
+**Not — "12–76 ft" iddiası doğrulanamadı, farklı bir şey ölçüyor olabilir.**
+Faz 1.5 tasarım notunda 1.5a'nın kabulü için "12–76 ft" aralığı
+belirtilmişti; bu proje dosyalarında (`HANDOFF.md`, `test_inner_loop.py`)
+bulunamadı. Yukarıdaki 4.43 ft, TEK bir koşulda (20 kft/M0.8, düz kanat)
+düz uçuş sapması — muhtemelen "12–76 ft" iddiası `HANDOFF.md`'deki farklı
+bir ölçüme (**koordineli dönüş** 45°/20s: 27–51 ft, birden fazla irtifa/Mach
+koşulu) atıfta bulunuyor, aynı şey değil. Sızıntı sorusu (asıl soru)
+kesin cevaplandı; sayı referansı belirsiz kaldıysa kaynağı ayrıca
+teyit edilmeli.
+
+### 📋 İzlenecek: guidance politikası sabit hedefe eğitildi, hareketli hedefe değil
+
+`bvr/envs/guidance_env.py::_new_waypoint()` incelendi: hedef **sabit**
+üretiliyor, yakalanana (ya da rastgele yürüyüşle bir sonraki bacağa
+geçilene) kadar değişmiyor. 1.5c'de komutan (TAC-08, sanal hedef 5–25 nmi)
+bu hedefi düşman uçağın **hareketli** konumuna göre her 10 Hz tikte
+kaydırırsa, politika eğitiminde hiç görmediği bir dağılımla (sürekli kayan
+hedef) karşılaşır — `HANDOFF.md` tuzak #31/35 ailesinden bir dağılım kayması
+riski.
+
+**Şimdilik düzeltilmiyor, gözlemleniyor.** 1.5c'nin kabul kriterine (180 s
+çökmeden koşsun) ek olarak **davranışsal** kontrol de yapılmalı: Tacview'de
+uçak TAC-08'in bulunuş şeklindeki gibi (sürekli yatış sallanması) titriyor
+mu diye bakılmalı — sayısal metrikler bunu daha önce hiç yakalamamıştı.
 
 ---
 

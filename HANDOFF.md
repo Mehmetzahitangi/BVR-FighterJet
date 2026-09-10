@@ -195,6 +195,29 @@ Bu bölüm dokümanın en değerli kısmı. Her madde **ölçümle** bulundu.
     metriklerin kaçırdığını yakalar** — irtifa ve Mach metrikleri bu
     salınımı hiç göstermiyordu.
 
+37. **JSBSim'de NOKTA KÜTLE de reset arasında kalıcıdır** (türbülans gibi,
+    bkz. tuzak 2). `inertia/pointmass-weight-lbs[0]` bir kez yazılırsa
+    sonraki `reset()` onu temizlemez. Referans koşuya geçerken açıkça
+    sıfırlanmazsa "yüksüz" ölçüm yüklü çıkar. Ayrıca kütle yazıldıktan
+    sonra `fdm.run()` çağrılmadan `inertia/weight-lbs` GÜNCELLENMEZ —
+    JSBSim kütle özelliklerini adım sırasında yeniden hesaplar.
+38. **F-16 modelinde yalnızca pointmass[0] gerçektir.** `[1]`, `[2]`
+    yazılabilir ve geri okunabilir ama **kütle dengesine girmez** — sessizce
+    etkisiz kalır. Ek yük `[0]`'a eklenmeli ve konumu **birleşik momenti
+    koruyacak** şekilde seçilmelidir; aksi halde CG 8.4 inç geriye kayar.
+    F-16 gevşek kararlı olduğu için bu, ölçümü yanlı hale getirir.
+    (Gerçekte de harici yükler CG'ye yakın asılır — tam bu sebeple.)
+
+39. **"Muhafazakâr sabit" varsayımını, sistemi değiştirdiğinde YENİDEN
+    KONTROL ET.** `COMBAT_WEIGHT_LB = 25000` bilerek en ağır durum seçilmiş
+    ve Mach tabanı bariyeri ona göre fit edilmişti. 4 AMRAAM eklenince uçak
+    25.942 lb oldu ve varsayım sessizce çürüdü — bariyer 10 kft'te
+    muhafazakâr olmaktan çıkıp iyimser hale geldi (pay −0.0078 Mach).
+    Etki küçük (manevra payı 1.25× → 1.22×) ama **hiç fark edilmeden
+    geçebilirdi**: hiçbir test bunu yakalamazdı, çünkü testlerin hepsi
+    varsayımın kendisini kullanıyordu. Bir sabitin yanında "muhafazakâr"
+    yazıyorsa, sistemi değiştiren her eklemede o iddiayı yeniden ölç.
+
 ### Ölçüm (en çok hata yapılan yer)
 15. **Tepe değeri güvenlik metriği değil.** Tek bir −3.37 g örneği
     "bariyer tutmuyor" gibi görünür; ihlal *oranı* %0.01'di.

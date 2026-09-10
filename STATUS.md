@@ -5,8 +5,36 @@
 
 ## Son durum
 
-**Aşama:** 3 — gerçek ölçekte guidance eğitimi **TAMAMLANDI, model SEÇİLDİ**
-**Sıradaki:** guidance + kalkan dondurulup BVR altyapısına geçiş
+**Aşama:** 3 TAMAMLANDI — guidance ve kalkan **DONDURULDU**
+**Sıradaki:** Faz 1.1 — BVR angajman geometrisi
+
+### BVR kararları kilitlendi (2026-09-04)
+
+| # | karar |
+|---|---|
+| 1 | Füze: **3-DOF nokta kütle + PN** |
+| 2 | Radar: **RCS + Doppler/notching dahil** |
+| 3 | Altyapı **2v2'ye hazır**, eğitim **1v1**'den |
+| 4 | Füze uyarısı **RWR** (MAW değil — BVR'da alev görünmez) |
+| 5 | **IRST faz 2'ye ertelendi** (notching'i yener, temel taktiği bozar) |
+| 6 | **4 AMRAAM** |
+| 7 | **Füze kütlesi modellenecek** — ölçüldü, sözleşme korunuyor |
+
+Ayrıntı ve gerekçeler: `REQUIREMENTS.md` → "BVR fazı — KİLİTLİ KARARLAR".
+
+**Mühimmat kütlesi ölçümü (`scripts/payload_check.py`):** 5 konfigürasyonun
+hepsinde **14/14 + 14/14**. En ağır durumda (25.942 lb, eğitim üst sınırının
+%5.5 üstünde) en kötü irtifa hatası **109 ft** — referanstan bile küçük.
+Guidance yeniden eğitilmeyecek.
+
+**⚠️ Yan bulgu — BVR izleme listesine eklendi.** `COMBAT_WEIGHT_LB = 25000`
+bariyerin varsaydığı "en ağır durum"du; 4 AMRAAM + tam yakıt 25.942 lb ile
+bunu 942 lb aşıyor. Etki **yalnızca 10 kft'te**: bariyer yüklü uçağı 0.0078
+Mach kapsamıyor (15 kft ve üstünde pay rahat). Uçak stall'a girmiyor —
+manevra payı 1.25× → 1.22×'e düşüyor. Ayrıca doğrusal fit 10 kft'te
+varsayılan ağırlıkta bile 0.0017 kısa kalıyor, yani sorun kısmen fitten
+geliyor. **Komutan zamanının önemli kısmını 15 kft altında geçirirse
+yeniden değerlendir.** Detay: REQUIREMENTS.md.
 
 ### Seçilen model
 
@@ -90,6 +118,26 @@ atmosferik geçici aşımları **engellemez**. Ölçülen en kötü geçici −4
 **Ertelenen düzeltme:** doğru çözüm yeri iç döngüde rüzgâr darbesine karşı g
 sınırlama, ya da 60 Hz'de çalışan bir filtre. İkisi de dondurulmuş katmanları
 açmayı gerektirir, bu fazın kapsamı dışında.
+
+## BVR ilerlemesi
+
+| faz | ne | durum |
+|---|---|---|
+| 1.1 | Angajman geometrisi (`bvr/combat/geometry.py`) | ✅ 4/4 test |
+| 1.2 | Radar (`bvr/combat/radar.py`) | ✅ 20/20 test |
+| 1.2b | Kilit gecikmesi (RAD-09/10/11) | ✅ dahil |
+| 1.3 | Füze (PN güdüm, 3-DOF) | 🔜 sırada |
+| 1.4 | Angajman muhasebesi | 📋 |
+| 1.5 | Çok uçaklı sim + Tacview | 📋 |
+
+**Ayarlanacak denge parametreleri (fiziksel sabit DEĞİL):**
+`lock_delay_s = 2.5` ve `coast_s = 4.0` birlikte notching'in gücünü
+belirliyor. Gerekçeli başlangıç tahminleri; ajanlar ortaya çıkınca ölçülüp
+ayarlanacak. Detay: `REQUIREMENTS.md` → RAD-09/10.
+
+**Ertelenen:** yeniden kilitlenme gecikmesi (`reacquire_delay_s`). Gerçek
+radarda tekrar kilit sıfırdan aramadan hızlıdır; modelde yok. Notching fazla
+güçlü çıkarsa ilk başvurulacak ayar.
 
 ## ⚠️ BVR'A BAŞLARKEN İLK OKUNACAK: komutan arayüzü kuralı (TAC-08)
 
