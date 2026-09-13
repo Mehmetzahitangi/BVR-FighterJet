@@ -1,5 +1,5 @@
 """
-Görüş Ötesi (BVR) Angajman ve Muhasebe Yöneticisi.
+Görüş Ötesi (BVR) Angajman Yöneticisi.
 - Silah Envanteri ve Kütle Değişimi (Uçak başına 4 AMRAAM, 335 lb/adet)
 - 4 Aşamalı Atış Yetki Kontrolü (can_fire)
 - Aktif Füzeler Datalink Köprüsü ve Datalink Memory Toleransı
@@ -14,6 +14,9 @@ from types import SimpleNamespace
 from bvr.combat.missile import Missile, MissileConfig
 from bvr.combat.radar import Radar
 from bvr.combat.geometry import relative_geometry
+
+from bvr.combat.rwr import RWR, RWRConfig, RWRContact  
+from bvr.combat.missile import off_boresight_deg 
 
 @dataclass
 class Loadout:
@@ -44,6 +47,7 @@ class AircraftEntry:
     radar: Radar
     loadout: Loadout
     alive: bool = True
+    rwr: RWR = field(default_factory=RWR)  # YENI: Her uçağın bir RWR'ı var
 
 
 @dataclass
@@ -195,7 +199,7 @@ class Engagement:
         return True
 
     def update(self, dt: float, states: dict[str, any]) -> list[CombatEvent]:
-        """Bir simülasyon adımı ilerletir ve oluşan olayları döndürür."""
+        """Simülasyonu bir adım ilerletir ve oluşan olayları döndürür."""
         self.sim_time += dt
         step_events: list[CombatEvent] = []
 
@@ -209,15 +213,51 @@ class Engagement:
             if ac_id in self.aircraft:
                 self.aircraft[ac_id].state = new_state
 
-        # 2. Radarları güncelle (Her uçağın radarı diğer uçakları tarar)
+        # 2. Radarları ve RWR'ları (Arama/Kilit) güncelle
+        # Önce radarları hesapla, sonuçları biriktir.
+        radar_results = {}
         for s_id, s_entry in self.aircraft.items():
-            if not s_entry.alive:
-                continue
+            if not s_entry.alive:  continue
+
             for t_id, t_entry in self.aircraft.items():
                 if s_id == t_id or not t_entry.alive:
                     continue
                 geom = relative_geometry(s_entry.state, t_entry.state)
-                s_entry.radar.update(dt, t_id, geom)
+                radar_contact = s_entry.radar.update(dt, t_id, geom)
+
+                # 's_id', 't_id'yi nasıl görüyor kaydet
+                radar_results[(s_id, t_id)] = radar_contact
+
+        # Şimdi bu sonuçları TERSİNDEN okuyup t_id'nin RWR'ına beslemeliyiz
+        for target_id, t_entry in self.aircraft.items():
+            if not t_entry.alive: continue
+            
+            for shooter_id, s_entry in self.aircraft.items():
+                if target_id == shooter_id or not s_entry.alive: continue
+                
+                contact = radar_results.get((shooter_id, target_id))
+                if contact is None:
+                    continue
+                # Uc asamali zincirin RWR'a giren ilk iki basamagi:
+                # tracked -> "kilit", (detected ama henuz tracked degil) -> "arama".
+                # Ikisi de yoksa (gimbal/menzil/notch nedeniyle hic enerji
+                # donmuyor) hicbir sey beslenmez -- bkz. RWR-Hata-3.
+                if contact.tracked:
+                    kind = "kilit"
+                elif contact.detected:
+                    kind = "arama"
+                else:
+                    continue
+
+                # Bize (t_entry) shooter'ın kerterizi lazım.
+                # Bunu bulmak için 't_entry'den 's_entry'ye çizilen geometriyi kullanıyoruz
+                geom_reverse = relative_geometry(t_entry.state, s_entry.state)
+
+                t_entry.rwr.feed_signal(
+                    emitter_id=shooter_id,
+                    kind=kind,
+                    bearing_deg=geom_reverse.ata_deg
+                )
 
         # 3. Aktif füzeleri güncelle
         for m in self.missiles:
@@ -275,6 +315,55 @@ class Engagement:
                 t_vel_i = t_vel_old + (t_vel_new - t_vel_old) * frac
                 state = m.missile.update(dt_sub, t_pos_i, t_vel_i, datalink_ok=shooter_tracking)
 
+            # YENİ: Pitbull olmuş füzenin RWR'a (Level 2) beslenmesi
+            if state.phase == "pitbull":
+                # Fuzenin arayici konisinde miyiz?
+                m_pos, m_vel = state.pos_ft, state.vel_fps
+                t_pos, _ = _extract_pos_vel(t_entry.state)
+                
+                # Adim 0'da disari aldigımız fonksiyonu kullanıyoruz çünkü fuze kendi konisini (seeker_fov_deg) biliyor.
+                boresight_ang = off_boresight_deg(m_vel, m_pos, t_pos)
+                
+                if boresight_ang <= self.missile_cfg.seeker_fov_deg:
+                    # Füze bizi görüyor. Bize füzeye bakan açı lazım.
+                    # 1. Uçaktan füzeye doğru LOS (Line of Sight) vektörü
+                    r_vec = m_pos - t_pos 
+                    r_mag = float(np.linalg.norm(r_vec))
+                    
+                    if r_mag > 1e-3:
+                        u_los = r_vec / r_mag
+                    else:
+                        u_los = np.array([1.0, 0.0, 0.0])
+
+                    # 2. Uçağın kendi gidiş (burun) vektörü
+                    # t_vel_new: Bu tick'in başındaki hedef uçağın hız vektörü 
+                    # (Engagement'ın üst kısımlarında _extract_pos_vel ile zaten çekilmişti)
+                    v_mag = float(np.linalg.norm(t_vel_new))
+                    if v_mag > 1e-3:
+                        u_hdg = t_vel_new / v_mag
+                    else:
+                        u_hdg = np.array([1.0, 0.0, 0.0])
+
+                    # 3. İki vektör arasındaki açı (Dot Product)
+                    cos_beta = float(np.dot(u_hdg, u_los))
+                    cos_beta = max(-1.0, min(1.0, cos_beta)) # Hata önleme (Clamping)
+                    bearing_to_msl_deg = math.degrees(math.acos(cos_beta))
+
+                    # 4. Yön (Sağ/Sol) İşareti (Cross Product)
+                    # Sadece X-Y (Kuzey-Doğu) düzlemindeki iz düşümüne göre sağ/sol kararı veriyoruz
+                    # (Z ekseni irtifa, RWR genelde 2D çalışır)
+                    cross_z = u_hdg[0] * u_los[1] - u_hdg[1] * u_los[0]
+                    if cross_z < 0:
+                        bearing_to_msl_deg = -bearing_to_msl_deg
+
+                    # 5. RWR'a Sinyali Gönder
+                    t_entry.rwr.feed_signal(
+                        emitter_id=m.id,  # Füzenin ID'si (Örn: "msl_red_1")
+                        kind="fuze",      # Level 2 tehdit
+                        bearing_deg=bearing_to_msl_deg
+                    )
+
+
             # Pitbull geçiş olayı
             if state.phase == "pitbull" and not m.was_pitbull:
                 m.was_pitbull = True
@@ -298,5 +387,10 @@ class Engagement:
                     t_entry.alive = False
                     if hasattr(t_entry.state, "alive"):
                         t_entry.state.alive = False
+
+        # 4. RWR Zamanlayıcılarını güncelle
+        for entry in self.aircraft.values():
+            if entry.alive:
+                entry.rwr.update(dt)
 
         return step_events

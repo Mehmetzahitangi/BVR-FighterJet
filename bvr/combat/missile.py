@@ -219,11 +219,10 @@ class Missile:
                 true_r_nm = true_r_ft / 6076.11549
                 v_mag_now = float(np.linalg.norm(self.vel))
                 if true_r_nm <= self.cfg.seeker_range_nm and true_r_ft > 1e-3 and v_mag_now > 1e-3:
-                    cos_off = float(np.dot(self.vel / v_mag_now, true_r_vec / true_r_ft))
-                    cos_off = max(-1.0, min(1.0, cos_off))
-                    off_boresight_deg = math.degrees(math.acos(cos_off))
-                    if off_boresight_deg <= self.cfg.seeker_fov_deg:
+                    boresight_angle = off_boresight_deg(self.vel, self.pos, target_pos)
+                    if boresight_angle <= self.cfg.seeker_fov_deg:
                         self._seeker_locked = True
+
 
             if self._seeker_locked:
                 # Aktif radar artik surekli izliyor -- her adim gercek hedefle tazelenir.
@@ -380,3 +379,27 @@ class Missile:
             los_rate_radps=self._last_los_rate,
             applied_g=self._last_applied_g
         )
+
+
+
+
+def off_boresight_deg(vel: np.ndarray, from_pos: np.ndarray, to_pos: np.ndarray) -> float:
+    """
+        Serbest bir (module-level function)
+        vel yönelimiyle, from_pos'tan to_pos'a çizilen görüş hattı (LOS) vektörü
+    arasındaki açıyı derece cinsinden [0, 180] döner.
+        Bağımsız olarak, füzenin kendi aktif radarının hedefi görebileceği (sepet içinde) bir ölçü verir. rwr.py'dan import edilirken boş yere bir füze örneği yaratmaya gerek yok, bu yüzden module-level function.
+    """
+
+    r_vec = to_pos - from_pos
+    r_mag = float(np.linalg.norm(r_vec))
+    v_mag = float(np.linalg.norm(vel))
+
+    # Sıfıra bölme hatalarını önlemek için kontrol
+    if r_mag < 1e-3 or v_mag < 1e-3:
+        return 0.0
+    
+    cos_off = float(np.dot(vel / v_mag, r_vec / r_mag))
+
+    # Floating point hassasiyetinden dolayı cosinus -1 ile 1 dışına çıkmasın diye clamp'liyoruz
+    return math.degrees(math.acos(max(-1.0, min(1.0, cos_off))))

@@ -142,7 +142,6 @@ def metrics(log: dict, theta_deg: float) -> dict:
     # Oturma zamani: ATA ne zamandan itibaren |theta|+-3 bandinda KALICI kaliyor.
     # Sondan geriye tara: bandi son ihlal eden ornekten SONRAKI ilk ornek.
     band_ok = np.abs(np.abs(ata) - theta_deg) <= SETTLE_BAND_DEG
-    t_settle = float(t_e[0])
     if not band_ok[-1]:
         t_settle = float("nan")            # hicbir zaman oturmadi
     else:
