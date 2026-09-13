@@ -60,6 +60,34 @@ Modellenen sistem **kapalı çevrimdir** (F-16 + FLCS + iç döngü), çıplak u
 
 Ayrık zamanlı CBF: `h(x⁺) ≥ (1−γ)h(x)` → `G·w ≤ rhs`, `base.cbf_rows()`.
 
+### Guidance sürücüsü — `bvr/envs/guidance_driver.py`
+`GuidanceEnv` (eğitim: ödül + rastgele hedef + Gym episode) ile aynı
+FİZİĞİ, farklı bir kabukta sunar. `guidance_shared.py`'deki saf
+fonksiyonlar (bearing/menzil/gözlem/aksiyon dönüşümleri) İKİSİ TARAFINDAN
+da kullanılır — dondurulmuş modelin gördüğü gözlem formülü TEK yerde
+tanımlı. `GuidanceDriver.tick()`, `GuidanceEnv.step()`'in ödül/hedef/Gym
+DIŞINDAKİ her satırını birebir tekrarlar (komut savurma sınırı dahil —
+bkz. `HANDOFF.md` tuzak 41); ikisinin fizik eşdeğerliği <1e-11 toleransla
+doğrulandı (`scripts/guidance_driver_smoke.py`).
+
+### Savaş katmanı — `bvr/combat/`
+Guidance/kalkan katmanlarının YANINDA, onları TÜKETEN ayrı bir modül
+grubu — hiçbiri dondurulmuş katmanları değiştirmez.
+
+| modül | sözleşme |
+|---|---|
+| `geometry.relative_geometry(a, b)` | iki `FlightState`'ten ATA/AA/HCA/menzil/kapanma/LOS-rate (radyan-tabanlı sözleşme — derece değil) |
+| `radar.Radar.update(dt, target_id, geom)` | `target_id` sözlüğüyle DURUM TUTAR — tek antende çok hedef, `is_tracking(target_id)` saf sorgu |
+| `missile.Missile(cfg, launch_state, target_id).update(dt, tgt_pos, tgt_vel, datalink_ok)` | 3-DOF PN, `pos_ft`/`vel_fps` NEU sözleşmesi (radyan-tabanlı `FlightState` DEĞİL) |
+| `engagement.Engagement` | `add_aircraft`/`can_fire`/`fire`/`update` — N-uçaklı `dict`/`list` üzerinde, 2 uçak varsayımı YOK (1.5e'de kanıtlandı: 2v2 için sıfır kod değişikliği) |
+
+**Paylaşılan koordinat çerçevesi:** her `F16Sim`/`GuidanceDriver` kendi
+`reset()` anını yerel (0,0) sayar. Çok uçaklı bir sahnede aynı çerçeveye
+taşımak çağıranın işidir — `dataclasses.replace()` ile `north_ft`/
+`east_ft`'e sabit bir ofset eklenip PAYLAŞILAN bir kopya üretilir; sürücünün
+kendi iç durumu değişmez (bkz. `bvr_1v1_smoke.py`/`bvr_2v2_smoke.py`/
+`bvr/sim/acmi.py`, `HANDOFF.md` tuzak 40).
+
 ## Kararlar ve gerekçeleri
 
 | Karar | Neden |
@@ -118,7 +146,14 @@ konfigürasyon arasında fark **iddia edilemez**.
 | P4 | CBF komut yöneticisi (eğitim döngüsünde) | ✅ |
 | P5 | Deep-Koopman | ⬜ |
 | P6 | Robust CBF (model hata sınırı) | ⬜ |
-| P7 | Taktik komutan arayüzü | ⬜ |
+| 1.1 | Angajman geometrisi (`bvr/combat/geometry.py`) | ✅ |
+| 1.2 | Radar (RCS+Doppler+kilit/coast) | ✅ |
+| 1.3 | Füze (3-DOF PN, boost/coast, seeker gate) | ✅ |
+| 1.4 | Angajman muhasebesi (atış yetkisi/mühimmat/olay günlüğü) | ✅ |
+| 1.5 | Çok uçaklı sim (1v1+2v2) + Tacview (`GuidanceDriver`) | ✅ |
+| P7 | Taktik komutan (PPO, 2 Hz) — guidance/kalkan DONUK | ⬜ SONRAKİ |
+
+Ayrıntı: `REQUIREMENTS.md` §RAD/MSL/ENG/SIM2, tuzaklar `HANDOFF.md`.
 
 ## Çalıştırma
 
@@ -130,4 +165,9 @@ python scripts/collect_sysid.py --episodes 600
 python scripts/compare_models.py              # tez karşılaştırma tablosu
 python scripts/train_guidance.py --steps 400000 --envs 12 --tag v1
 python scripts/eval_guidance.py --model runs/guidance_v1/sac_final.zip
+
+# Savaş katmanı (Faz 1.1-1.5)
+python -m pytest bvr/combat/tests -q                      # 46 test
+python -m scripts.bvr_1v1_smoke <model.zip> --acmi run.acmi
+python -m scripts.bvr_2v2_smoke <model.zip> --acmi run.acmi
 ```

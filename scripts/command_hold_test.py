@@ -75,6 +75,30 @@ def hold_test(policy, cfg, alt_cmd, mach_cmd, alt0, mach0, hold_s=90.0, seed=7):
                 mach_ss=float(np.mean(me[-w:])), mach_sd=float(np.std(me[-w:])))
 
 
+# (baslangic irtifa, baslangic Mach, KOMUT irtifa, KOMUT Mach, tip)
+#
+# SIMETRIK TASARIM: ilk surumde 2 tirmanis / 2 alcalma vardi ve r2
+# konfigurasyonu alcalmalarin IKISINDE de batti (+1585, +4423 ft).
+# Yon basina 2 ornekle "alcalamiyor" denemez; manevra tipi artik
+# DENGELI ornekleniyor ve ozet tip bazinda da veriliyor.
+CASES = [
+    (20000, 0.80, 20000, 0.80, "tutma"),
+    (30000, 0.90, 30000, 0.90, "tutma"),
+    (20000, 0.80, 25000, 0.80, "tirmanis"),
+    (15000, 0.85, 20000, 0.85, "tirmanis"),
+    (25000, 0.90, 32000, 0.90, "tirmanis"),
+    (30000, 0.95, 35000, 0.95, "tirmanis"),
+    (30000, 0.90, 25000, 0.90, "alcalma"),
+    (35000, 0.95, 30000, 0.95, "alcalma"),
+    (25000, 0.85, 18000, 0.85, "alcalma"),
+    (20000, 0.80, 15000, 0.80, "alcalma"),
+    (25000, 0.75, 25000, 1.00, "hiz"),
+    (25000, 1.10, 25000, 0.85, "hiz"),
+    (15000, 0.70, 22000, 0.95, "birlesik-tirmanis"),
+    (35000, 1.00, 30000, 0.80, "birlesik-alcalma"),
+]
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("model")
@@ -84,28 +108,6 @@ if __name__ == "__main__":
     cfg.episode_s = 600.0
     pol = SAC.load(a.model, device="cpu")
 
-    # (baslangic irtifa, baslangic Mach, KOMUT irtifa, KOMUT Mach, tip)
-    #
-    # SIMETRIK TASARIM: ilk surumde 2 tirmanis / 2 alcalma vardi ve r2
-    # konfigurasyonu alcalmalarin IKISINDE de batti (+1585, +4423 ft).
-    # Yon basina 2 ornekle "alcalamiyor" denemez; manevra tipi artik
-    # DENGELI ornekleniyor ve ozet tip bazinda da veriliyor.
-    CASES = [
-        (20000, 0.80, 20000, 0.80, "tutma"),
-        (30000, 0.90, 30000, 0.90, "tutma"),
-        (20000, 0.80, 25000, 0.80, "tirmanis"),
-        (15000, 0.85, 20000, 0.85, "tirmanis"),
-        (25000, 0.90, 32000, 0.90, "tirmanis"),
-        (30000, 0.95, 35000, 0.95, "tirmanis"),
-        (30000, 0.90, 25000, 0.90, "alcalma"),
-        (35000, 0.95, 30000, 0.95, "alcalma"),
-        (25000, 0.85, 18000, 0.85, "alcalma"),
-        (20000, 0.80, 15000, 0.80, "alcalma"),
-        (25000, 0.75, 25000, 1.00, "hiz"),
-        (25000, 1.10, 25000, 0.85, "hiz"),
-        (15000, 0.70, 22000, 0.95, "birlesik-tirmanis"),
-        (35000, 1.00, 30000, 0.80, "birlesik-alcalma"),
-    ]
     print(f"model: {a.model}")
     print(f"{'baslangic':>16} {'komut':>14} {'tip':<18}| "
           f"{'irtifa hatasi':>20} {'Mach hatasi':>18}")

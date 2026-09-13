@@ -1104,6 +1104,13 @@ koşulu) atıfta bulunuyor, aynı şey değil. Sızıntı sorusu (asıl soru)
 kesin cevaplandı; sayı referansı belirsiz kaldıysa kaynağı ayrıca
 teyit edilmeli.
 
+**Kaynak bulundu (2026-09-11):** "12–76 ft", `TEKNIK_NOTLAR.md:233`'teki trim
+ölçümü — `scripts/smoke_trim.py`'nin birkaç irtifa/Mach koşulunda trim
+sonrası 60 s düz uçuş sapması. Tek koşuldaki 4.43 ft onunla çelişmiyor. Ama
+sızıntı için doğru kabul kriteri o aralık değil, **"A açıkken B ≡ B tek
+başına"**dır — ve A ile B aynı kurulduğu için bu testte o kriter sınanamıyor
+(bkz. SIM2-07 "Hâlâ açık" madde 3). Asimetrik sürüm bit bit aynı çıktı.
+
 ### 📋 İzlenecek: guidance politikası sabit hedefe eğitildi, hareketli hedefe değil
 
 `bvr/envs/guidance_env.py::_new_waypoint()` incelendi: hedef **sabit**
@@ -1118,6 +1125,301 @@ riski.
 çökmeden koşsun) ek olarak **davranışsal** kontrol de yapılmalı: Tacview'de
 uçak TAC-08'in bulunuş şeklindeki gibi (sürekli yatış sallanması) titriyor
 mu diye bakılmalı — sayısal metrikler bunu daha önce hiç yakalamamıştı.
+
+### SIM2-02 — paylaşılan gözlem modülü + `GuidanceDriver` (ölçüldü)
+
+**Adım 1 — `bvr/envs/guidance_shared.py`.** `GuidanceEnv`'in gözlem/açı/
+komut-dönüşüm formülleri (`_bearing_error`, `_range_to_target`, `_obs`,
+`_action_to_cmd`, `_cmd_to_action`) saf fonksiyonlara çıkarıldı;
+`guidance_env.py`'nin kendi metodları artık bu modüle **delege ediyor**
+(çağrı yerleri değişmedi). **Regresyon kanıtı:** `scripts/command_hold_test.py
+runs/reward_r3_both/sac_1999968_steps.zip` çıktısı çıkarma öncesi/sonrası
+**byte-byte özdeş** (14/14 + 14/14, her satır aynı sayı).
+
+**Adım 2 — `bvr/envs/guidance_driver.py`.** `GuidanceEnv.step()`'in fizik
+kısmı (JSBSim + İç Döngü + Kalkan), ödül/rastgele-hedef/Gym mantığı
+olmadan `GuidanceDriver.tick(action)` olarak yeniden kuruldu.
+
+**Bulunan eksik — ölçülerek yakalandı.** İlk sürüm `GuidanceEnv` ile
+`GuidanceDriver`'a **aynı aksiyon dizisi** verilip çıkan `FlightState`'ler
+karşılaştırıldığında (`scripts/guidance_driver_smoke.py`), adım 2'den
+itibaren sapma büyüyordu (200 adımda irtifa farkı ~200 ft, `nz` farkı 1.65).
+Sebep: `GuidanceConfig.action_rate_limit` varsayılanı `0.25` (**kapalı
+değil**) — `GuidanceEnv.step()` aksiyonu komuta çevirmeden önce bir **komut
+yavaşlatma (slew-rate) sınırı** uyguluyor; `GuidanceDriver` bunu atlamıştı.
+Bu eğitime özgü bir ayrıntı değil — dosyanın kendi başlığında "gerçek bir
+güdüm sistemi de komutu 10 Hz'de tam ölçekte savurmaz" diye açıklanan,
+dondurulmuş modelin **altında kalibre olduğu** bir şekillendirme filtresi.
+Düzeltme sonrası aynı test: **tüm alanlarda fark <1e-11 (kayan nokta
+gürültüsü seviyesinde) — birebir aynı fizik.**
+
+> ⚠️ Bu, projede tekrar eden bir dersin yeni bir örneği: "eğitim ortamının
+> neyin eğitime özgü, neyin sözleşmenin kendisi olduğunu" varsaymak yerine
+> **ölçmek** gerekiyor. `action_rate_limit` ilk bakışta bir ödül/pürüzsüzlük
+> ayrıntısı gibi görünüyordu; aslında `step()`'in HER çağrısında koşulsuz
+> uygulanan, modelin kalibre olduğu bir fizik kısıtıydı.
+
+### SIM2-03 — 1.5b: iki `GuidanceDriver` eşzamanlı, kontaminasyon yok (ölçüldü)
+
+**Yöntem** (`scripts/guidance_driver_dual_hold_test.py`): 14 orijinal
+`command_hold_test` durumu 7 eşzamanlı **çifte** ayrıldı — bilerek AYNI değil
+**FARKLI** manevra tipleri eşlendi (ör. "tutma" ile "birleşik-alçalma"), RAD-08
+kalıbını (iki hedefi tek nesneyle izlerken durum sızması) burada da aramak
+için. Her çift 90 s eşzamanlı koşturuldu, sonuç tek-uçaklı referansla
+(`command_hold_test.py`'nin aynı modelle ürettiği sayılar) karşılaştırıldı.
+
+**Sonuç: 14/14 + 14/14, tek-uçaklı referanstan en büyük sapma 0.45 ft /
+0.000048 Mach** — kayan nokta gürültüsü seviyesinde. İki `GuidanceDriver`
+örneği arasında paylaşılan durum yok; `F16Sim`, `InnerLoop` ve (kalkan
+açıksa) `CBFShield`'in her örnek için bağımsız kurulduğu doğrulandı.
+
+### SIM2-04 — 1.5c: ilk uçtan uca 1v1 koşusu (`scripts/bvr_1v1_smoke.py`)
+
+**Mimari not — ortak koordinat çerçevesi.** Her `F16Sim`, kendi `reset()`
+anını yerel (0,0) kabul eder (`origin_lat/lon` o anda sabitlenir). İki
+uçağı aynı sahnede (30 nmi ayrı) başlatmak için her uçağın kendi
+`north_ft`/`east_ft`'ine sabit bir ofset eklenip **paylaşılan** çerçeveye
+taşınması gerekti (`dataclasses.replace()` ile `FlightState`'in konumu
+düzeltilmiş bir kopyası üretilip muhasebe/radar/füzeye O verildi — sürücünün
+kendi iç durumu hiç değişmedi).
+
+**Sonuç: 180 s'nin tamamı çökmeden, NaN olmadan koştu.** Basit betikli
+komutan (birbirine dön — TAC-08, 12 nmi sanal hedef; düşmanın aktif bir
+füzesi varsa 90° kır) ile: t=2.4-2.5s'de karşılıklı ikişer füze (`max_per_
+target=2` sınırına kadar), t=13.7 ve 27.9-28.7s'de hepsi sırayla `"kor"`,
+mühimmat (4/4) tükenince olaysız devam. Menzil/zamanlama fizikle tutarlı.
+
+**Gözlem — hiçbir füze isabet etmedi, hepsi `"kor"` oldu.** İlk yorum:
+sebep kod hatası değil, betiğin **kasıtlı basitliği**: "düşmanın aktif
+füzesi var → anında 90° kaç" kuralı, iki taraf da neredeyse eşzamanlı ateş
+ettiği için **her ikisinin de anında kaçmasına** yol açıyor — kaçarken
+kendi fırlattığı füzeyi de desteksiz bırakıyor. Bu, projenin baştan beri
+vurguladığı "füzeni desteklemek için dönük kalman lazım, ama dönük
+kalırsan sen de hedefsin" ödünleşmesinin ta kendisi.
+
+**⚠️ DÜZELTME (bkz. SIM2-07): bu yorum EKSİKTİ.** Bağımsız bir inceleme
+90°'nin (tam beam) SEBEP olduğunu ölçtü: gimbal sınırını (60°) aşıp
+ATICI ucağın KENDİ kilidini kırıyor — "betik dengelenmiyor" doğru ama
+"düzeltilmiyor" YANLIŞ çıktı. `--crank-deg` parametresi eklenip
+varsayılan 35°'ye çekilince zincir (atış→pitbull→seeker→isabet)
+ÇALIŞIYOR — 1v1'de karşılıklı imha, ayrıntı SIM2-07'de. Ders: "betiğin
+kasıtlı basitliği" açıklaması BİR olası mekanizmaydı, TEK mekanizma
+olduğu ÖLÇÜLMEDEN "düzeltilmiyor" kararı erken verilmişti (bkz.
+HANDOFF.md tuzak 31: "tek yapısal fark şu" akıl yürütmesi delil değildir).
+
+---
+
+### SIM2-05 — 1.5d: çok nesneli Tacview kaydı (`bvr/sim/acmi.py`, `scripts/bvr_1v1_smoke.py --acmi`)
+
+**Bulunan iki hata (tek uçaklı kullanımda gizli kalmış):**
+
+1. `ACMIRecorder._header_written` tek bir `bool`'du — sadece İLK kaydedilen
+   nesne Name/Type/Color/Pilot başlığı alıyordu; ikinci uçak (kırmızı) veya
+   herhangi bir füze isimsiz/tipsiz görünürdü. `set[int]` yapılıp `obj_id`
+   başına izlenerek düzeltildi.
+2. Konum `st.lon_deg`/`st.lat_deg`'den okunuyordu — bunlar her `F16Sim`'in
+   KENDİ özel `reset()` orijinine (her zaman ~0,0) göredir. İki ayrı
+   `F16Sim` örneğinden gelen iki uçak, gerçek muhasebe-çerçevesi ayrımları
+   ne olursa olsun Tacview'de ÇAKIŞIK görünürdü. Düzeltme: yeni `_lonlat()`
+   yardımcısı, `st.north_ft`/`st.east_ft` (paylaşılan NEU muhasebe çerçevesi
+   — çağıran taraf `dataclasses.replace()` ile ofsetliyor, bkz. SIM2-04) ve
+   TEK bir `ref_lat`/`ref_lon`'dan türetiyor; `jsbsim_bridge.py::state()`
+   ile AYNI `364000 ft/derece enlem` yaklaşık sabiti kullanılıyor.
+   Geriye dönük uyumluluk `demo_inner_loop.py`'nin `git stash` öncesi/sonrası
+   çıktısı diff'lenerek doğrulandı: tek fark, sabit `ref_lat` ile o anki
+   gerçek enlem arasındaki kosinüs terimi farkından gelen ~9 mm (7.
+   ondalık basamak) boylam sapması — zararsız, projenin kendi düz-dünya
+   yaklaşımıyla (aynı dosyanın kendi yorumu) tutarlı.
+
+**Üçüncü hata — sadece çok nesneli kayıtta ortaya çıktı (zaman damgası
+kayması).** İlk uygulamada füze/nesne-kaldırma çağrılarına betiğin YEREL
+`t = k*DT` (adım ÖNCESİ, k-indeksli) değişkeni veriliyordu, ama
+`ACMIRecorder.record()` uçak zaman damgasını `st.t`'den (adım SONRASI,
+`(k+1)*DT`) alıyor — ikisi tam 1 DT (0.1 s) kayıyor. Sonuç: dosyada
+zaman damgaları GERİYE atlıyordu (`#2.400` → `#2.500` → `#2.400` tekrar)
+ve yeni fırlatılan füzenin İLK kaydı, atış anındaki değil BİR TİK
+SONRAKİ uçak pozisyonunda görünüyordu (füze izi atış karesinde
+"boşlukta" başlıyormuş gibi görünürdü). Ölçümle yakalandı: `msl_blue_1`in
+"#2.400" altındaki ilk konumu, uçağın "#2.400" değil "#2.500" altındaki
+konumuyla bit-bir aynıydı. Düzeltme: füze kaydı/kaldırma çağrılarına
+artık `st_blue_combat.t` (uçağınkiyle AYNI iç saat) veriliyor —
+`missile_dt_convergence`/`GuidanceDriver` doğrulamalarında defalarca
+işe yarayan disiplin burada da geçerli: "aynı anı temsil eden iki
+değer, gerçekten AYNI kaynaktan gelsin, iki ayrı sayaçtan değil."
+
+**Doğrulama:** `scripts/bvr_1v1_smoke.py <model> --duration 60 --acmi
+<path>` koşusu (`runs/reward_r3_both/sac_1999968_steps.zip`) — düzeltme
+sonrası üretilen dosyada: (a) zaman damgaları tamamen monoton (script ile
+otomatik kontrol edildi), (b) her yeni füzenin ilk kaydı, atan uçağın O
+KARESİNDEKİ konumuyla bit-bir aynı, (c) `"kor"` ile sonuçlanan 4 füzenin
+`-obj_id` kaldırma satırları, konsolun bastığı `"t=13.7s kor"` olay
+zamanıyla birebir aynı `#13.700` bloğunda. `bvr/combat/tests` (46/46)
+etkilenmedi.
+
+---
+
+### SIM2-06 — 1.5e: 2v2 angajman (`scripts/bvr_2v2_smoke.py`)
+
+**Beklenenden az kod değişikliği gerekti — bu kendi başına bir bulgu.**
+`Engagement`/`Radar` zaten N-uçaklı tasarlanmıştı (`Radar` hedefleri
+`target_id` sözlüğüyle ayırıyor — kendi docstring'i "ileride kol uçuşu
+2v2" diyordu; `Engagement.aircraft`/`missiles` zaten genel `dict`/`list`,
+hiçbir yerde "tam 2 uçak" varsayımı yok). Gerçekte yeni gereken SADECE
+betik-seviyesi (komutan) mantığıydı:
+1. **Hedef seçimi** — 1v1'de düşman sabitti; 2v2'de her uçak HER TİKTE
+   kendi takımından bağımsız en yakın CANLI düşmanı seçiyor
+   (`nearest_alive_enemy`, `relative_geometry(...).range_nm` ile).
+   `pick_target()`'in kendisi DEĞİŞMEDİ — sadece "düşman" artık değişken.
+2. **Ateş döngüsü** — 1v1'in tek (shooter,target) çiftine karşı, burada
+   takım-çaprazı 4 çift her tikte ayrı `can_fire` kontrolünden geçiyor.
+
+**Bilinen sadeleştirme (bilerek düzeltilmedi):** `Engagement.update()`
+radarı düşmanlara olduğu kadar TAKIM ARKADAŞINA karşı da çalıştırıyor
+(gerçek radar IFF/dost-düşman ayrımı yapar). Zararsız — her hedef kendi
+`target_id`'siyle ayrı izleniyor, kilit durumları karışmıyor, sadece
+boşuna bir kontak var. Düzeltilmedi çünkü hiçbir kabul kriterini etkilemiyor.
+
+**Doğrulama (crank=90°, düzeltmeden ÖNCE):** `scripts/bvr_2v2_smoke.py
+<model> --duration 180 --acmi <path>` (`runs/reward_r3_both/
+sac_1999968_steps.zip`, 2 mavi + 2 kırmızı, kanat aralığı 3 nmi, takımlar
+arası 30 nmi). Sonuç: 180 s boyunca çökme/NaN yok; her 4 uçak da 4'er
+füze (toplam 16/16 mühimmat) attı, hepsi `"kor"` ile sonuçlandı; dört
+taraf da hayatta kaldı (mühimmat tükenmesiyle bitti). Tacview kaydında:
+4 uçak nesnesi (obj 1-4) ayrı konumlarda, aynı tikte birden fazla füze
+fırlatan bir uçağın İKİ füzesi de ATIŞ KARESİNDE tam olarak o uçağın
+pozisyonunda beliriyor, zaman damgaları uçtan uca monoton, `-obj_id`
+kaldırma satırları konsolun `"kor"` zaman damgasıyla birebir aynı blokta.
+`bvr/combat/tests` (46/46) etkilenmedi.
+
+**⚠️ DÜZELTME (bkz. SIM2-07):** "hepsi kor" burada da SIM2-04'teki aynı
+eksik yorumun sonucuydu (90° crank, gimbal aşımı). `--crank-deg 35`
+(yeni varsayılan) ile tekrar koşulunca: bazı çiftler `"kor"` olmaya devam
+etti, bazıları GERÇEK karşılıklı imhaya ulaştı (blue1↔red2 birbirini
+vurdu, blue2/red1'in füzeleri kor oldu) — yani 2v2, dört bağımsız
+(shooter,target) çiftinin FARKLI sonuçlar üretebildiği, tekdüze olmayan
+bir sonuç veriyor artık. Tacview/olay-sayısı doğrulaması aynı şekilde
+geçerliliğini korudu.
+
+---
+
+### SIM2-07 — crank açısı gimbal sınırını aşıyordu + füze kütlesi canlı yolda hiç uygulanmıyordu (düzeltildi)
+
+**Bağımsız bir inceleme** (bu oturumun dışından, `guidance_env.py`
+refaktörünü ve 1.5 smoke betiklerini denetleyen ayrı bir oturum) SIM2-04/
+06'daki "hepsi kor, betik dengelemiyor" yorumunun EKSİK olduğunu ölçtü.
+İki gerçek hata bulundu, ikisi de bağımsız olarak koddan doğrulandı ve
+düzeltildi:
+
+**1) Kaçış (evade) manevrası SABİT 90° (tam beam) idi, parametre değildi.**
+`pick_target()`'te `brg += math.pi / 2.0` hardcoded'dı. Ölçüm: komut
+edilen kırma açısı ile GERÇEKLEŞEN tepe ATA arasında fark var (aşım) —
+50° komutla bile gerçek ATA ~65.5°'ye çıkıyor, `RadarConfig.
+gimbal_az_deg=60°` sınırını aşıyor ve **ATICI ucağın KENDİ radar kilidi**
+kopuyor (`is_tracking(target)` false dönüyor → `datalink_ok=False` →
+füze zaten `MSL-06`'daki hafıza süresi (**5.0 s**; 10.0 denenip geri alındı, bkz. MSL-06/MSL-09) dolunca `"kor"`). Yani
+90°'lik "tam kaçış" hem düşmanın füzesinden kaçıyor HEM DE atıcının kendi
+füzesini köreltiyor — SIM2-04'ün "füzeni desteksiz bırakıyor" tespiti
+DOĞRUYDU ama mekanizması "davranışsal tercih" değil, **geometrik bir
+sınır aşımıydı**. Ölçülen taramada 35° ilk kez zinciri (atış → pitbull →
+seeker → isabet) uçtan uca çalıştırdı; bu **fiziksel sabit değil, DENGE
+PARAMETRESİ** (crank arttıkça kaçış iyileşir ama kendi füzeni riske
+atarsın) — Faz 2'nin öğrenilmiş komutanı için ilk somut girdi.
+
+*Düzeltme:* `pick_target()`/`Aircraft.step()`'e `crank_rad` parametresi
+eklendi, her iki betiğe de `--crank-deg` CLI argümanı (varsayılan **35**)
+eklendi. `math.pi/2.0` sabiti kaldırıldı.
+
+**2) Füze kütlesi `GuidanceDriver`'ın gördüğü GERÇEK JSBSim durumuna hiç
+ulaşmıyordu.** `Engagement.fire()`'daki kütle-düşürme denemesi
+(`for mass_attr in ("mass_lb","weight_lb"): if hasattr(...)`) `FlightState`
+dataclass'ında böyle bir alan OLMADIĞI için her zaman `hasattr=False`
+dönüyordu — sessizce hiçbir şey yapmıyordu. Bu, `test_engagement.py`'deki
+`MockAircraftState(mass_lb=...)` testinde GEÇİYORDU (mock'ta alan var)
+ama gerçek uçuşta hiç çalışmıyordu; üstelik `combat_state` her adımda
+`dataclasses.replace()` ile üretilen bir KOPYA olduğu için, alan olsa
+bile yazılan değer bir sonraki tikte kaybolurdu. Ölçüm: başlangıç JSBSim
+ağırlığı 22.859 lb (0 füze) idi, 4 AMRAAM yüklüyken 24.199 lb olmalıydı.
+
+*Düzeltme:* `GuidanceDriver.set_payload(extra_lb)` eklendi —
+`payload_check.py`'de doğrulanan yöntemle (`inertia/pointmass-weight-
+lbs[0]`, CG korunarak `pointmass-location-X-inches[0]`) DOĞRUDAN JSBSim'e
+yazıyor. `Aircraft.__init__` artık `reset()`'ten ÖNCE tam mühimmatla
+(4×335 lb) trim ediyor (payload_check'in ölçtüğü en ağır durum — GUI-11
+sözleşmesi 25.942 lb'de zaten sağlam çıkmıştı); her `fire()` sonrası
+`Aircraft.drop_missile()` kalan mühimmata göre ağırlığı güncelliyor
+(yeniden trim GEREKMİYOR — yakıt tüketimi gibi sürekli bir kütle
+değişimine iç döngü zaten uyum sağlıyor). `Engagement.fire()`'daki mock-
+uyumlu döngüye DOKUNULMADI (`test_engagement.py`'nin gerçek bir testi bu
+davranışa dayanıyor, 46/46 hâlâ geçiyor).
+
+**Doğrulama (crank=35°, kütle düzeltmesiyle):**
+- Kütle mekanizması izole test edildi: `set_payload(4×335)` sonrası
+  JSBSim `inertia/weight-lbs` = **24199.0** (beklenen tam eşleşme, önceki
+  ölçümün "24.199 olmalıydı" tahminini doğruladı); `set_payload(0)` sonrası
+  **22859.0** — fark tam **1340 lb**.
+- `guidance_driver_smoke.py`: dondurulmuş katman hâlâ <1e-6 toleransla
+  bit-bit aynı (yeni metod opt-in, mevcut hiçbir çağrı yolunu değiştirmedi).
+- `bvr_1v1_smoke.py --duration 180` (varsayılan crank=35°): t=2.4-2.5s
+  ilk volley, t=43.3s pitbull (İLK KEZ — önceki koşularda hiç görülmemişti),
+  **t=62.2s KARŞILIKLI İSABET** — iki taraf da imha oldu (`blue alive=False
+  red alive=False`), ikinci füzeler `"hedefsiz"` (hedef zaten ölü).
+- `bvr_2v2_smoke.py --duration 180` (varsayılan crank=35°): karışık sonuç
+  — blue1↔red2 karşılıklı isabetle imha oldu, blue2/red1'in füzeleri
+  `"kor"` kaldı. Toplam 2/4 uçak imha, 2/4 mühimmatsız hayatta.
+- `bvr/combat/tests` (46/46) ve `guidance_driver_smoke.py` etkilenmedi.
+
+**Ders (bu oturum için):** SIM2-04/06 yazılırken "kor" sonucuna TEK bir
+olası açıklama ("betik dengelemiyor") bulununca orada durulmuş, ALTERNATİF
+mekanizmalar (gimbal aşımı, ölü kütle-düşürme kodu) aranmamıştı. HANDOFF.md
+tuzak 31'in ("bir korelasyon gördün diye mekanizmayı bildiğini sanma")
+tam bir tekrarı — bu sefer başka bir oturumun bağımsız denetimiyle
+yakalandı. Bundan sonra "X çünkü Y" tarzı bir yoruma "başka bir Z de aynı
+sonucu üretir mi?" sorusu sorulmadan "düzeltilmiyor" kararı verilmeyecek.
+
+#### Bağımsız doğrulama — 2026-09-11 (düzeltme sonrası denetim)
+
+| kontrol | sonuç |
+|---|---|
+| `set_payload` reset'ten önce → trim ağır uçağa göre mi | ✅ 22.859 → **24.199 lb** (+1.340 birebir), trim gazı 0.3641 → 0.3676 |
+| Atış sonrası `drop_missile()` | ✅ **−335.1 lb** (bir tik, yakıt dahil); 4 atış sonrası 22.858,8 lb |
+| CG korunuyor mu | ✅ −190.19 (boş) → −190.23 (yüklü) → −190.19 (hepsi atıldı) in |
+| `drop_missile` gerçekten `eng.fire` sonrası mı | ✅ `bvr_1v1_smoke.py:186`, `bvr_2v2_smoke.py:217` |
+| 1v1 smoke (crank 35°) | ✅ pitbull t=43.3 s, karşılıklı isabet t=62.2 s, ikinci füzeler `hedefsiz`, **0 kor** |
+| 2v2 smoke (crank 35°) | ✅ blue1↔red2 karşılıklı imha; 16 atışın **2'si isabet, 6'sı hedefsiz, 8'i kor** |
+| Refaktör sonrası donmuş katman | ✅ 3600 gerçek politika adımında gözlem/komut farkı **0.000**; GUI-11 14/14 + 14/14 |
+| Örnekler arası sızıntı (asimetrik) | ✅ A sert türbülans + 1.340 lb + 35 kft/M1.1 iken B, tek başına koşusuyla **bit bit aynı** |
+
+**Crank taraması** (40 nmi başlangıç):
+
+> ⚠️ **Etiket düzeltmesi (2026-09-11):** bu tablo ilk yazıldığında başlıkta
+> `datalink_memory_s = 10.0` yazıyordu. Kodda (`missile.py:104`) ve MSL-06'da
+> değer **5.0** — 10.0 denenip geri alınmıştı. Taramanın hangi değerle
+> koşulduğu sonradan kanıtlanamadı. 35° satırı, 5.0 ile koşan 1v1 smoke'la
+> (yukarıdaki doğrulama tablosu) aynı sonucu verdi. 45° satırı 5.0 ile
+> yeniden doğrulanmadı. Faz 2.0'daki crank → ATA eğrisi bundan ETKİLENMEZ:
+> o ölçüm yalnızca geometriye bakar, füze hafızasına bakmaz.
+
+| crank | atış ≤ 20 nmi | atış ≤ 28 nmi |
+|---|---|---|
+| 35° | 2 isabet, karşılıklı imha | 2 isabet, karşılıklı imha |
+| 45° | 1 isabet | 0 — hepsi `kor` |
+| 50° | — | 0 — tepe ATA 65.5° |
+| 90° | — | 0 — kilit ATA −61°'de düştü |
+
+**Hâlâ açık:**
+1. **Crank → tepe ATA eğrisi ölçülmedi.** "Guidance komut edilen yönü ~15°
+   aşıyor" tek gözleme (50° → 65.5°) dayanıyor; "etkili crank sınırı ~40°"
+   bir hipotez, sınırı 35° (çalışıyor) ile 45° (karışık) arasında. Faz 2
+   davranış ağacına girmeden önce 30–50° taraması yapılmalı.
+2. **2v2'de aşırı atış (overkill):** 16 atışın 6'sı `hedefsiz` — iki kanat
+   da aynı "en yakın düşmanı" seçip aynı hedefe yığılıyor. Hedef paylaşımı
+   (sorting) Faz 6'ya (kol uçuşu) bırakıldı — Faz 2 betikli tabanı 1v1.
+3. **1.5a testi hâlâ simetrik** (`two_jsbsim_smoke.py`): iki örnek aynı
+   kurulduğu için sızıntı olsa da fark 0 çıkar — test başarısız olamaz.
+   Sonuç yukarıdaki asimetrik testle doğrulandı, ama commit'lenmiş test o değil.
+4. `F16Sim(seed=...)` → `self.rng` hiçbir yerde kullanılmıyor; smoke'lardaki
+   `hash(name)` her koşuda farklı tohum veriyor. Şu an zararsız (tohum ölü),
+   ama biri `rng`'yi kullanmaya başlarsa tekrar üretilebilirlik sessizce bozulur.
 
 ---
 

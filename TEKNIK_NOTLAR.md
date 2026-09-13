@@ -134,10 +134,15 @@
 | **Açıklanamayan farkı boş bırakma cesareti** | Stres testi ile normal ortam arasındaki 20 katlık fark açıklanamadı ve belgede öyle duruyor. İki açıklama denemesi yanlış çıktıktan sonra üçüncüsünü "makul göründüğü" için yazmak aynı hatayı tekrarlamak olurdu. | ✅ boş bırakıldı |
 | **Referansın temsil geçerliliği** | Bir izleme metriğinin referansı, **gelecekteki kullanıma benzeyen** bir kurulumda ölçülmeli. Hedef yakalamalı ortamda ölçülen nz_min (0.042), varış düzeltmesiyle şişkindi; komutan hedef kovalamayacağı için BVR'da yanlış temel. Stres testi 20 kat düşük verdi. | ✅ referans düzeltildi |
 
-## A8. BVR — sıradaki faz 📋
+## A8. BVR — savaş katmanı ✅ (Faz 1.1–1.5 bitti) / betikli taban 📋 (Faz 2) / öğrenen komutan 📋 (Faz 3–6)
 
 **Kilitli kararlar:** füze 3-DOF+PN · radar RCS+Doppler · 2v2'ye hazır altyapı ·
 RWR (MAW değil) · IRST ertelendi · 4 AMRAAM · füze kütlesi modellenecek
+
+**Durum:** aşağıdaki tablo BVR fazı BAŞLAMADAN ÖNCE terimler sözlüğü olarak
+yazılmıştı (durum sütunu o zamanki tahmindi). Geometri/radar/füze/muhasebe/
+çok-uçaklı-sim artık `bvr/combat/` altında YAZILDI ve ÖLÇÜLDÜ — ayrıntı
+Adım 17'de. Taktik komutan (PPO, self-play, kredi atama) satırları hâlâ 📋.
 
 | terim | ne demek | durum |
 |---|---|---|
@@ -155,6 +160,12 @@ RWR (MAW değil) · IRST ertelendi · 4 AMRAAM · füze kütlesi modellenecek
 | **Coast (kilit hafızası)** | Temas kesilince kilidin sürdüğü süre, 4.0 s. ✅ uygulandı. Notch'u kaç saniye tutman gerektiğini bu belirler. | ⚠️ ayarlanacak |
 | 📋 **Yeniden kilitlenme** | Gerçek radarda tekrar kilit, sıfırdan aramadan hızlıdır (anten nereye bakacağını bilir). Modelde **yok** — coast bitince tam sıfırlama. `reacquire_delay_s < lock_delay_s` olarak eklenebilir. | 📋 ertelendi |
 | **TWS vs STT** | Track-While-Scan birden çok hedefi izler ama zayıf kilit; Single Target Track tek hedefe sürekli aydınlatma — karşı tarafın RWR'ı ikisini **farklı görür**. | 📋 |
+| **Etkili crank sınırı** | Radar gimbal'i (60°) eksi guidance'ın yön aşımı. Ölçülen: 35° çalışıyor, 45° karışık, 50° kendi füzeni körleştiriyor (tepe ATA 65.5°). | ⚠️ eğrisi ölçülecek |
+| **Hedef paylaşımı (sorting)** | Kol uçuşunda kanatların farklı düşmanları seçmesi. Yoksa ikisi aynı hedefe yığılır — 2v2'de 16 atışın 6'sı `hedefsiz`. | 📋 Faz 6 |
+| **Overkill** | Zaten düşecek hedefe fazladan mühimmat harcamak. `hedefsiz` sonucu bunu ölçüyor. | 📋 Faz 6 |
+| **Basamak cevabı / aşım** | Komut aniden sıçrayınca sistemin tepkisi; aşım = tepe − komut. Crank sınırını bu belirliyor (50° komut → 65.5°). | 📋 Faz 2.0 |
+| **Spike** | RWR'ın "biri seni kilitledi" uyarısı. Atış anı RWR'da GÖRÜNMEZ; füze pitbull'a geçince yeni tehdit olarak belirir. | 📋 Faz 2.1 |
+| **Betikli taban (baseline)** | RL'in geçmesi gereken kural tabanlı rakip. Zemin olmadan "RL iyi" iddiası anlamsız. | 📋 Faz 2.3 |
 | **RWR** (Radar Warning Receiver) | Radar aydınlatmasını tespit eder. BVR'da füze uyarısı **buradan** gelir. | ✅ karar |
 | ⚠️ **MAW** (Missile Approach Warning) | Füze alevini IR/UV ile görür. **BVR'da işe yaramaz** — AMRAAM 8-10 s yanar, kalan 50+ km'yi süzülür. | ❌ elendi |
 | 📋 **IRST** | Pasif kızılötesi arama-takip. **Notching'i yenmez** → temel taktiği bozar. | 📋 faz 2 |
@@ -641,6 +652,122 @@ seçmek gerekti, yoksa CG 8.4 inç geriye kayıyor.
 
 ---
 
+## Adım 17 — BVR savaş katmanı: geometri, radar, füze, muhasebe, çok uçaklı sim
+
+Kilitli kararlardan sonra beş alt adımda (`bvr/combat/`) yazıldı, her biri
+bir öncekinin üzerine dondurularak: geometri (Faz 1.1) → radar (1.2) →
+füze (1.3) → angajman muhasebesi (1.4) → çok uçaklı simülasyon + Tacview
+(1.5a–e). Toplam **46/46 test**, tamamı `bvr/combat/tests/` altında.
+
+**Geometri (1.1):** ATA/AA/HCA/kapanma hızı/LOS dönme hızı — radar ve
+füzenin İKİSİNİN de üzerine kurulduğu ortak sözleşme. Tek gerçek tuzak:
+tautolojik test riski (HCA'yı hesaplayıp aynı formülle doğrulamak hiçbir
+şey kanıtlamaz) — testler bağımsız geometrik senaryolarla (bilinen açı
+üreten uçuş durumları) yazıldı.
+
+**Radar (1.2):** 4. kök menzil denklemi + açıya bağlı RCS (kuyruk 4 m²,
+yan 50 m², burun 2 m² — bu 25 katlık fark BVR'ın temel taktiğinin
+kaynağı) + Doppler notch + gimbal + kilit-kurma/coast durum makinesi.
+`lock_delay_s`/`coast_s` **fiziksel sabit değil, DENGE PARAMETRESİ** —
+ajanlar ortaya çıkınca ölçülüp ayarlanacak (RAD-09/10). Tasarım kararı
+baştan `target_id` sözlüğüyle ÇOK HEDEFLİYDİ (docstring: "ileride kol
+uçuşu 2v2 gibi senaryolar için") — bu karar 1.5e'de karşılığını ödedi:
+2v2'ye geçerken radar kodunda TEK SATIR değişmedi.
+
+**Füze (1.3):** 3-DOF nokta-kütle, gerçek Oransal Seyrüsefer (`a = N·V·λ̇`),
+boost/coast fazları, datalink hafızası (kilit kesilince bir süre son
+bilinen konum/hızla güdülmeye devam), seeker gate (pitbull sonrası kendi
+kilidi). **Ölçülen bulgu:** dt-duyarlılığı MONOTONİK DEĞİL — 6g manevra
+yapan hedefe karşı marjinal bir angajmanda 10 Hz dış tik ile sonuç
+(isabet/ıska) daha ince/kaba dt'lerdekinden farklı çıkabiliyor
+(`missile_dt_convergence.py`, gerçek Python ↔ Node.js portu çapraz
+doğrulaması). Çözüm: füze fiziği dışarıdan bağımsız 50 Hz'de (5 alt-adım)
+koşuyor (ENG-10).
+
+**Angajman muhasebesi (1.4):** atış yetki hiyerarşisi (mühimmat →
+doygunluk → menzil → kilit), kütle düşüşü (335 lb/füze), olay günlüğü.
+`Engagement`/`Radar`, hiçbir yerde "tam 2 uçak" varsaymayacak şekilde
+(genel `dict`/`list` üzerinden) yazıldı — bu genellik bedelsiz değildi
+(daha soyut kod) ama 1.5e'de N-uçaklı genişlemeyi BEDAVA yaptı.
+
+**Çok uçaklı simülasyon + Tacview (1.5a–e):** en çok tuzak burada çıktı,
+çünkü ilk kez BİRDEN FAZLA `F16Sim`/`GuidanceDriver` örneği AYNI ANDA,
+AYNI SAHNEDE çalıştırıldı:
+- 1.5a: iki bağımsız `F16Sim`'in birbirini kirletmediği ölçüldü (60 s'de
+  4.43 ft sürüklenme, ikisinde de aynı — sızıntı yok).
+- 1.5b: `GuidanceEnv`'in fizik kısmı `guidance_shared.py`'ye çıkarılıp
+  eğitim-dışı hafif bir sürücüye (`GuidanceDriver`) taşındı. İlk sürüm
+  komut savurma sınırını (`action_rate_limit`) unuttu — "eğitime özgü"
+  sanılmıştı, aslında dondurulmuş modelin kalibre olduğu sözleşmenin
+  parçasıydı. `guidance_driver_smoke.py` ile yakalandı (200 adımda ~200 ft
+  sapma → düzeltince <1e-11).
+- 1.5c: ilk uçtan uca 1v1 — 180 s çökmeden koştu, tüm füzeler karşılıklı
+  kaçış yüzünden `"kor"` (datalink kaybı) oldu. Kod hatası değil: basit
+  betikli komutanın "düşman ateş etti mi anında 90° kaç" kuralı, iki
+  tarafın da neredeyse eşzamanlı ateş ettiği bir senaryoda HERKESİ
+  kaçırıp herkesin kendi füzesini desteksiz bırakmasına yol açıyor.
+- 1.5d: Tacview kaydı çok nesneli hale getirildi. İKİ hata bulundu: (a)
+  başlık alanları tek `bool` bayrakla tutuluyordu (sadece ilk nesne isim
+  alıyordu), (b) konum her `F16Sim`'in KENDİ özel orijininden değil,
+  PAYLAŞILAN `north_ft`/`east_ft` çerçevesinden okunmalıydı — aksi halde
+  iki uçak Tacview'de çakışık görünürdü. ÜÇÜNCÜ, daha ince bir hata da
+  buradan çıktı: füze/uçak kaydına verilen iki "zaman" değeri (uçağın
+  kendi `st.t`'si vs betiğin yerel `k*dt` sayacı) aynı anı temsil ettiği
+  SANILIYORDU ama 1 tik kaymışlardı — yeni fırlatılan bir füze, atış
+  anındaki değil bir tik SONRAKİ uçak konumunda görünüyordu. Ders: "aynı
+  anı" temsil eden iki değer aynı saatten gelmeli.
+- 1.5e: 2v2 — 4 uçak, 4 radar, 16 mühimmat. `Engagement`/`Radar`'da SIFIR
+  kod değişikliği gerekti; tek yeni mantık betik (komutan) seviyesindeydi
+  (en yakın canlı düşmanı seç, takım-çaprazı ateş döngüsü).
+
+**Açık kalan risk (1.5b'de fark edildi, henüz kapatılmadı):** dondurulmuş
+guidance politikası SABİT HEDEF NOKTALARINA uçmak için eğitildi
+(`guidance_env.py::_new_waypoint()`), hareketli bir düşman uçağına değil.
+1v1/2v2 betikleri bunu her tikte hedefi yeniden hesaplayarak dolaylı
+aşıyor ama bu, eğitim dağılımının biraz dışında bir kullanım. Faz 2
+(taktik komutan) eğitilirken izlenecek ilk şüpheli.
+
+Ayrıntı ve tüm sayısal ölçümler: `REQUIREMENTS.md` → §RAD/MSL/ENG/SIM2.
+Tuzakların tam listesi: `HANDOFF.md` → TUZAKLAR §"BVR savaş katmanı".
+
+---
+
+## Adım 18 — İlk uçtan uca koşu: sıfır isabet, iki gizli hata
+
+Faz 1.5'in smoke testleri 180 saniye çökmeden koştu ve "tamam" diye
+işaretlendi. Bağımsız bir denetimde görüldü ki **hiçbir füze isabet
+etmemişti** — 1v1'de 8/8, 2v2'de 16/16 `kor`. Zincirin son halkası
+(isabet → imha → `hedefsiz`) canlı simülasyonda hiç koşmamıştı.
+
+İlk yorum "betik her tehditte tam kaçıyor, Faz 2'nin işi" idi. Ölçüm, başka
+iki mekanizma buldu:
+
+**1) Crank açısı radar gimbal'ini aşıyordu.** Betik 90° kırıyordu; kendi
+radar kilidin gimbal'de (60°) coast'suz anında kopuyor, füzen körleşiyordu.
+Daha şaşırtıcısı: 50° bile yetmedi — guidance komut edilen yönü aşıyor ve
+ATA 65.5°'ye çıkıyor.
+
+| crank | sonuç |
+|---|---|
+| 90° | kilit ATA −61°'de düştü, hepsi `kor` |
+| 50° | tepe ATA 65.5°, hepsi `kor` |
+| 45° | karışık |
+| **35°** | **karşılıklı isabet** |
+
+**2) Füze kütlesi canlı yolda hiç yoktu.** `Engagement.fire()` kütleyi
+`mass_lb` alanına yazıyordu; test mock'unda o alan vardı, gerçek
+`FlightState`'te yoktu. Kod sessizce hiçbir şey yapmıyordu. Düzeltme
+doğrudan JSBSim'e yazıyor: kalkışta 24.199 lb, atış başına −335 lb.
+
+Düzeltmeden sonra 1v1: pitbull t=43.3 s, **karşılıklı isabet t=62.2 s**,
+0 `kor`.
+
+**Ders:** "X çünkü Y" yorumuna "başka bir Z de aynı sonucu üretir mi?" diye
+sorulmadan "düzeltilmiyor" denmeyecek. Ayrıca iki eski ders tekrarlandı:
+başarısız olamayan test (1.5a simetrik kurulum) ve mock ile geçen ölü kod.
+
+---
+
 ## Projeyi anlatırken vurgulanacak üç şey
 
 0. **Hipotezini ölçümden ÖNCE yaz, yanlış çıkınca da sil değil kaydet.**
@@ -683,10 +810,17 @@ bvr/models/edmd.py           EDMD (SEÇİLEN: physics kitaplığı)
 bvr/models/deep_koopman.py   Deep Koopman (karşılaştırma)
 bvr/safety/cbf.py            OSQP tabanlı CBF kalkanı
 bvr/safety/robust.py         gürbüz pay (park edildi)
-bvr/envs/guidance_env.py     RL ortamı, ödül fonksiyonu
+bvr/envs/guidance_env.py     RL ortamı, ödül fonksiyonu (eğitim)
+bvr/envs/guidance_shared.py  bearing/obs/aksiyon donusumleri (env+driver ORTAK)
+bvr/envs/guidance_driver.py  dondurulmus guidance'in CANLI (egitim-disi) surucusu
 bvr/agents/train_guidance.py SAC eğitimi + BestByCaptureQuality
 bvr/agents/scripted_guidance.py  klasik güdüm (taban)
 bvr/config.py                YAML deney tanımı
+
+bvr/combat/geometry.py       ATA/AA/HCA/kapanma/LOS-rate
+bvr/combat/radar.py          RCS+Doppler notch+gimbal+kilit/coast (cok hedefli)
+bvr/combat/missile.py        3-DOF PN fuze, boost/coast, datalink hafizasi, seeker gate
+bvr/combat/engagement.py     atis yetkisi, muhimmat, olay gunlugu (N-ucakli)
 
 scripts/smoke_trim.py        trim doğrulaması
 scripts/id_fcs.py            FCS komut ölçümü
@@ -710,6 +844,13 @@ scripts/reproduce.py         tekrar üretilebilirlik
 scripts/test_model.py        ELLE TEST: hedef + anlik deger, adim adim
 scripts/stress_commander.py  agresif betikli komutanla stres testi
 scripts/violation_where.py   ihlaller NEREDE olusuyor (menzil/yatis/alcalma)
+scripts/two_jsbsim_smoke.py  iki F16Sim orneginin birbirini kirletmedigi testi (1.5a)
+scripts/guidance_driver_smoke.py  GuidanceDriver <-> GuidanceEnv fizik esdegerligi (1.5b)
+scripts/guidance_driver_dual_hold_test.py  iki esanli surucu kontaminasyon testi (1.5b)
+scripts/missile_dt_convergence.py  fuze fizigi dt-yakinsama olcumu (ENG-10)
+scripts/payload_check.py     muhimmat kutlesinin guidance sozlesmesini bozmadigi testi
+scripts/bvr_1v1_smoke.py     uctan uca 1v1 angajman + Tacview kaydi (1.5c/1.5d)
+scripts/bvr_2v2_smoke.py     uctan uca 2v2 angajman + Tacview kaydi (1.5e)
 ```
 
 ### Elle test etmek için
@@ -724,8 +865,14 @@ python scripts/test_model.py <model> --acmi runs/test.acmi --every 20
 
 # Kalkansız karşılaştırma
 python scripts/test_model.py <model> --no-shield
+
+# BVR savaş katmanı: uctan uca 1v1/2v2 + Tacview kaydi
+python -m scripts.bvr_1v1_smoke runs/reward_r3_both/sac_1999968_steps.zip \
+    --duration 180 --acmi runs/1v1.acmi
+python -m scripts.bvr_2v2_smoke runs/reward_r3_both/sac_1999968_steps.zip \
+    --duration 180 --acmi runs/2v2.acmi
 ```
 
 Diğer belgeler: `ARCHITECTURE.md` (katman sözleşmeleri) ·
-`REQUIREMENTS.md` (40+ gereksinim, kriter → ölçüm → durum) ·
-`HANDOFF.md` (30 maddelik tuzak listesi) · `STATUS.md` (anlık durum)
+`REQUIREMENTS.md` (40+ gereksinim + RAD/MSL/ENG/SIM2, kriter → ölçüm → durum) ·
+`HANDOFF.md` (45 maddelik tuzak listesi) · `STATUS.md` (anlık durum)

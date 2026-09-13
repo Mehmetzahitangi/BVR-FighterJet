@@ -58,6 +58,7 @@ from ..sim import aircraft as ac
 from ..sim.jsbsim_bridge import F16Sim
 from ..control.inner_loop import InnerLoop, InnerLoopCommand
 from ..models.state_def import state_from_flight, cmd_to_u
+from . import guidance_shared as gs
 
 OBS_DIM = 19
 ACT_DIM = 3
@@ -235,21 +236,13 @@ class GuidanceEnv(gym.Env):
     # Aksiyon <-> fiziksel komut
     # ------------------------------------------------------------------
     def _action_to_cmd(self, a: np.ndarray) -> InnerLoopCommand:
-        """[-1,1]^3 -> fiziksel komut. Aralikllar aircraft.py'deki zarftan gelir."""
-        a = np.clip(np.asarray(a, dtype=np.float64), -1.0, 1.0)
-        phi = a[0] * math.radians(ac.BANK_MAX_DEG)
-        gam = a[1] * math.radians(ac.GAMMA_MAX_DEG)
-        mach = self.cfg.mach_lo + 0.5 * (a[2] + 1.0) * (self.cfg.mach_hi - self.cfg.mach_lo)
-        return InnerLoopCommand(phi, gam, mach)
+        """[-1,1]^3 -> fiziksel komut. bvr/envs/guidance_shared.py'ye tasindi
+        (Faz 1.5'in GuidanceDriver'iyla PAYLASILAN tek dogruluk kaynagi)."""
+        return gs.action_to_cmd(a, self.cfg.mach_lo, self.cfg.mach_hi)
 
     def _cmd_to_action(self, cmd: InnerLoopCommand) -> np.ndarray:
-        """_action_to_cmd'in tersi. Kalkandan cikan komutu gozleme koymak icin."""
-        span = max(self.cfg.mach_hi - self.cfg.mach_lo, 1e-9)
-        return np.clip(np.array([
-            cmd.phi_cmd_rad / math.radians(ac.BANK_MAX_DEG),
-            cmd.gamma_cmd_rad / math.radians(ac.GAMMA_MAX_DEG),
-            2.0 * (cmd.mach_cmd - self.cfg.mach_lo) / span - 1.0,
-        ]), -1.0, 1.0)
+        """_action_to_cmd'in tersi. bvr/envs/guidance_shared.py'ye tasindi."""
+        return gs.cmd_to_action(cmd, self.cfg.mach_lo, self.cfg.mach_hi)
 
     # ------------------------------------------------------------------
     def _new_waypoint(self) -> None:
@@ -286,45 +279,19 @@ class GuidanceEnv(gym.Env):
 
     def _range_to_target(self) -> float:
         st = self._st
-        return math.hypot(self.tgt_n - st.north_ft, self.tgt_e - st.east_ft)
+        return gs.range_to_target(self.tgt_n, self.tgt_e, st.north_ft, st.east_ft)
 
     def _bearing_error(self) -> float:
         st = self._st
-        brg = math.atan2(self.tgt_e - st.east_ft, self.tgt_n - st.north_ft)
-        e = brg - st.psi_rad
-        return (e + math.pi) % (2 * math.pi) - math.pi
+        return gs.bearing_error(self.tgt_n, self.tgt_e, st.north_ft, st.east_ft, st.psi_rad)
 
     # ------------------------------------------------------------------
     def _obs(self) -> np.ndarray:
-        st = self._st
-        be = self._bearing_error()
-        rng_ft = self._range_to_target()
-        o = np.array([
-            math.sin(be), math.cos(be),
-            min(rng_ft / 50000.0, 3.0),
-            (self.tgt_alt - st.alt_ft) / 5000.0,
-            (self.tgt_mach - st.mach) / 0.30,
-            st.phi_rad,
-            st.gamma_rad / 0.40,
-            st.alpha_rad / 0.20,
-            st.beta_rad / 0.10,
-            (-st.nz - 1.0) / 3.0,
-            st.p_rads / 1.50,
-            st.q_rads / 0.40,
-            (st.mach - 0.90) / 0.40,
-            (st.alt_ft - 25000.0) / 12000.0,
-            st.h_dot_fps / 300.0,
-            # UYGULANAN komut (kalkan kapaliyken ajanin komutuyla ayni)
-            self._last_applied[0], self._last_applied[1], self._last_applied[2],
-            # YAKIT ORANI -> agirlik. Politikanin agirligi GORMESI gerekir:
-            # ayni gamma komutu 19.900 lb ile 23.900 lb'de farkli tirmanis
-            # hizi verir, stall payi da farklidir. Gercek otopilotlar da
-            # agirliga gore kazanc cizelgeler. Ayrica BVR fazinda fuze
-            # atisi ~350 lb agirlik dusurur; agirliga duyarli bir politika
-            # bu gecisi puruzsuz karsilar.
-            (st.fuel_frac - 0.65) / 0.35,
-        ], dtype=np.float32)
-        return np.nan_to_num(o, nan=0.0, posinf=5.0, neginf=-5.0)
+        """19 boyutlu gozlem. bvr/envs/guidance_shared.py::build_obs'a tasindi
+        (Faz 1.5'in GuidanceDriver'iyla PAYLASILAN tek dogruluk kaynagi --
+        dondurulmus modelin egitildigi TAM formul, degistirme)."""
+        return gs.build_obs(self._st, self.tgt_n, self.tgt_e, self.tgt_alt,
+                            self.tgt_mach, self._last_applied)
 
     # ------------------------------------------------------------------
     def reset(self, *, seed=None, options=None):

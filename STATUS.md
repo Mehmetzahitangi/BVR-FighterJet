@@ -5,8 +5,13 @@
 
 ## Son durum
 
-**Aşama:** 3 TAMAMLANDI — guidance ve kalkan **DONDURULDU**
-**Sıradaki:** Faz 1.1 — BVR angajman geometrisi
+**Aşama:** Faz 1.1–1.5 TAMAMLANDI — BVR savaş katmanı (geometri, radar,
+füze, angajman muhasebesi, çok uçaklı simülasyon + Tacview) baştan sona
+kuruldu ve ölçüldü. Guidance ve kalkan zaten dondurulmuştu; bu fazda
+İKİSİNE DE dokunulmadı (`GuidanceDriver` sadece onları TÜKETİYOR).
+**Sıradaki:** Faz 2 — betikli taban (öğrenme yok): crank eğrisi → RWR →
+değerlendirme düzeneği → davranış ağacı komutanı → rakip varyantları.
+Faz planı ve alt adımlar: aşağıda "Faz planı (2–7)". PPO komutanı Faz 3'te.
 
 ### BVR kararları kilitlendi (2026-09-04)
 
@@ -126,18 +131,57 @@ açmayı gerektirir, bu fazın kapsamı dışında.
 | 1.1 | Angajman geometrisi (`bvr/combat/geometry.py`) | ✅ 4/4 test |
 | 1.2 | Radar (`bvr/combat/radar.py`) | ✅ 20/20 test |
 | 1.2b | Kilit gecikmesi (RAD-09/10/11) | ✅ dahil |
-| 1.3 | Füze (PN güdüm, 3-DOF) | 🔜 sırada |
-| 1.4 | Angajman muhasebesi | 📋 |
-| 1.5 | Çok uçaklı sim + Tacview | 📋 |
+| 1.3 | Füze (PN güdüm, 3-DOF) | ✅ (46 testin bir kısmı; ENG-10: dt-yakınsama için 50 Hz alt-adım) |
+| 1.4 | Angajman muhasebesi (atış yetkisi/mühimmat/olay günlüğü) | ✅ |
+| 1.5a | İki JSBSim örneği arası sızıntı testi | ✅ sızıntı yok — asimetrik testle doğrulandı (commit'li test hâlâ simetrik, SIM2-07) |
+| 1.5b | `guidance_shared` çıkarımı + `GuidanceDriver` (fizik-sadece sürücü) | ✅ `GuidanceEnv` ile <1e-11 eşdeğer |
+| 1.5c | İlk uçtan uca 1v1 (`scripts/bvr_1v1_smoke.py`) | ✅ crank 35°: pitbull t=43.3 s, karşılıklı isabet t=62.2 s, 0 kor |
+| 1.5d | Tacview çok-nesne kaydı (`ACMIRecorder`) | ✅ |
+| 1.5e | 2v2 (`scripts/bvr_2v2_smoke.py`) | ✅ 2 imha; 16 atışın 6'sı `hedefsiz` (overkill), 8'i kor |
+| 1.5f | crank açısı + füze kütlesi düzeltmesi (SIM2-07) | ✅ bağımsız olarak doğrulandı (2026-09-11) |
+
+`bvr/combat/tests` toplam **46/46** geçiyor. Ayrıntı ve ölçüm sonuçları:
+`REQUIREMENTS.md` → §RAD/MSL/ENG/SIM2.
+
+**Faz 2'ye taşınan girdiler (SIM2-07):**
+- **Etkili crank sınırı gimbal değil (60°), ~40°.** Guidance komut edilen
+  yönü aşıyor (50° → 65.5°). 35° çalışıyor, 45° karışık, 50°+ kendi füzeni
+  körleştiriyor. Davranış ağacına girmeden önce 30–50° eğrisi ölçülecek.
+- **Hedef paylaşımı (sorting) → Faz 6.** 2v2'de kanatlar aynı "en yakın
+  düşmanı" seçip aynı hedefe yığılıyor — 16 atışın 6'sı boşa. Faz 2 1v1
+  olduğu için kol uçuşu fazına bırakıldı.
+- **Füze kütlesi canlı yolda uygulanıyor** (`GuidanceDriver.set_payload`):
+  kalkışta 24.199 lb, atış başına −335 lb.
 
 **Ayarlanacak denge parametreleri (fiziksel sabit DEĞİL):**
 `lock_delay_s = 2.5` ve `coast_s = 4.0` birlikte notching'in gücünü
 belirliyor. Gerekçeli başlangıç tahminleri; ajanlar ortaya çıkınca ölçülüp
 ayarlanacak. Detay: `REQUIREMENTS.md` → RAD-09/10.
+Ayrıca `MissileConfig.datalink_memory_s = 5.0` — 10.0'a çıkarılıp
+ÖLÇÜLDÜ (MSL-09), fayda sıfır + gerçek taktik maliyet bulununca 5.0'a
+GERİ ALINDI (bkz. HANDOFF.md tuzak 32'nin yeni bir örneği).
 
 **Ertelenen:** yeniden kilitlenme gecikmesi (`reacquire_delay_s`). Gerçek
 radarda tekrar kilit sıfırdan aramadan hızlıdır; modelde yok. Notching fazla
 güçlü çıkarsa ilk başvurulacak ayar.
+
+**⚠️ DÜZELTİLMİŞ BULGU (SIM2-07) — 1.5c/1.5e'de "hepsi kor" yorumu
+EKSİKTİ.** İlk yorum: basit "düşman ateş etti mi anında 90° kaç" kuralı
+herkesi anında kaçırıp kendi füzesini desteksiz bırakıyor. Bağımsız bir
+inceleme ölçtü ki asıl sebep bu DEĞİL (ya da sadece bu değil): 90°'lik
+kaçış, radar gimbal sınırını (60°) aşıp **atıcının kendi kilidini**
+kırıyordu. İKİNCİ, ayrı bir hata daha vardı: füze kütlesi (`Engagement.
+fire()`'daki deneme) hiçbir zaman gerçek JSBSim durumuna ulaşmıyordu
+(`FlightState`'te öyle bir alan yok, `combat_state` her adım yeniden
+üretilen bir kopya). İkisi düzeltildi: `--crank-deg` parametresi
+(varsayılan 35°) + `GuidanceDriver.set_payload()` (gerçek JSBSim
+ağırlığı, `payload_check.py` yöntemiyle). Sonuç: 1v1'de KARŞILIKLI
+İSABET (t=62.2s, iki taraf da imha), 2v2'de karışık sonuç (bazı çiftler
+isabetle, bazıları hâlâ `"kor"` ile bitiyor). "Füzeni desteklemek için
+dönük kalman lazım ama dönük kalırsan sen de hedefsin" ödünleşmesi hâlâ
+gerçek ve hâlâ Faz 2'nin işi — ama artık betik bunu GERÇEKTEN test
+edebiliyor, önceden gimbal aşımı yüzünden hiç sınanamıyordu. Ayrıntı:
+`REQUIREMENTS.md` → SIM2-07.
 
 ## ⚠️ BVR'A BAŞLARKEN İLK OKUNACAK: komutan arayüzü kuralı (TAC-08)
 
@@ -166,12 +210,46 @@ sayesinde bulundu. `command_hold_test.py` 200 → 30 nmi düzeltildi; GUI-11
 
 Detay: `REQUIREMENTS.md` → TAC-08.
 
-## Sonraki faz: BVR altyapısı
+## Faz planı (2–7)
 
-1. Radar modeli, füze modeli, çok uçaklı simülasyon
-2. Taktik komutan (PPO, 2 Hz) — guidance DONUK
-3. İkili kol uçuşu: scripted kanat → MARL
-4. Sunum: Tacview/FlightGear videosu, README, LinkedIn
+Sıra değişmedi (2026-09-11 gözden geçirildi). Guidance ve kalkan tüm
+fazlarda DONUK.
+
+| faz | ne | çıktı / kabul |
+|---|---|---|
+| 1 | ~~Savaş katmanı (geometri, radar, füze, muhasebe, çok uçaklı sim)~~ | ✅ Faz 1.1–1.5 |
+| **2** | **Betikli taban (öğrenme yok)** | `bvr/agents/scripted_commander.py` + betikli-vs-betikli kazanma oranı |
+| 3 | Komutan ortamı (gözlem/aksiyon, 2 Hz, PPO) | Gym ortamı |
+| 4 | 1v1 eğitim, betikli rakip havuzuna karşı | betikli komutanı geçmek, güven aralıkları örtüşmeyecek |
+| 5 | Self-play (betikli + dondurulmuş eski sürümler havuzu) | — |
+| 6 | İkili kol uçuşu: betikli kanat → MARL | hedef paylaşımı (sorting) burada |
+| 7 | Sunum: Tacview/FlightGear videosu, README, LinkedIn | — |
+
+**Faz 2 alt adımları** (Faz 1 bulgularıyla genişletildi):
+
+| adım | ne | çıktı |
+|---|---|---|
+| 2.0 | Crank → tepe ATA eğrisi (izole ölçüm) | `scripts/crank_sweep.py` → komutanın crank sabiti |
+| 2.1 | **RWR modeli** (spike / atış görünmez / pitbull'da yeni tehdit) + testler | `bvr/combat/rwr.py` |
+| 2.2 | Değerlendirme düzeneği: rastgele geometri, n=200, bootstrap GA; kazanç/kayıp/berabere, `kor`, `hedefsiz`, **nz_min** | `scripts/eval_commander.py` |
+| 2.3 | Betikli komutan, davranış ağacı (yaklaş, ateş, crank, notch, drag, yeniden gir) | `bvr/agents/scripted_commander.py` |
+| 2.4 | Rakip varyantları (agresif / temkinli) + betikli-vs-betikli tablosu | Faz 4'ün geçilecek eşiği, Faz 4–5 rakip havuzu |
+
+**Neden 2.1 (RWR) şart:** kilitli karar #4 "füze uyarısı RWR ile" diyor,
+ama RWR hiç yazılmadı. Smoke'lar kaçış kararını **gerçek füze listesinden**
+alıyor (`bvr_1v1_smoke.py:160`), yani uçak füzeyi atıldığı anda "görüyor".
+Bu, MAW'ı reddetme gerekçemizin ta kendisi. Betikli taban her şeyi bilirse
+Faz 4'teki "RL tabanı geçti" karşılaştırması adil olmaz. İkisi AYNI bilgiyi
+görmeli.
+
+**Faz 3'e şimdiden işlenen düzeltmeler:**
+- Gözlem: "füze durumları" = **kendi füzelerimin durumu + RWR uyarıları**.
+  Düşman füzesinin gerçek konumu gözleme GİRMEZ.
+- Aksiyon: istikamet komutu 5–25 nmi uzaklığa sanal hedef olarak çevrilir
+  (TAC-08); crank açısı Faz 2.0'da ölçülen sınırla kırpılır.
+
+Ayrıntılı devir notları (nelerin bittiği, nelerin Faz 2'yi beklediği):
+`HANDOFF.md` §8.
 
 **Guidance katmanının üst katmana verdiği sözleşme:** komut sabit tutulduğunda
 irtifa ±184 ft, Mach ±0.019 içinde kalır; salınım yoktur (σ ≤ 33 ft). Komutan

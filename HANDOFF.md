@@ -14,10 +14,18 @@ görüş-ötesi (BVR) savaş uçağı. Katmanlar aşağıdan yukarı:
 ```
 JSBSim F-16 FLCS        120 Hz   uçağın kendi fly-by-wire'ı (hazır)
 İç döngü (klasik PI)     60 Hz   γ/φ/Mach tutucu            ✅ BİTTİ
-Guidance (SAC)           10 Hz   hedef → [φ_cmd, γ_cmd, M_cmd]  🔄
+Guidance (SAC)           10 Hz   hedef → [φ_cmd, γ_cmd, M_cmd]  ✅ DONDU
 Güvenlik filtresi (CBF)  10 Hz   komut yöneticisi           ✅ DONDU
 Taktik komutan (PPO)      2 Hz   radar/füze/kaçış/kol uçuşu ⬜ SONRAKİ
 ```
+
+**BVR savaş katmanı (dikey yığının YANINDA, ayrı bir modül grubu) —
+Faz 1.1–1.5 ✅ TAMAMLANDI:** angajman geometrisi, radar (RCS+Doppler+
+kilit), füze (3-DOF PN), angajman muhasebesi (atış yetkisi/mühimmat/
+olay günlüğü), çok uçaklı simülasyon (1v1 ve 2v2) + Tacview kaydı —
+hepsi `bvr/combat/` altında, guidance'tan (yukarıdaki `GuidanceDriver`
+üzerinden) tüketiliyor. Ayrıntı: `REQUIREMENTS.md` §RAD/MSL/ENG/SIM2.
+Sıradaki: Faz 2 — taktik komutan (PPO, 2 Hz), bkz. §8.
 
 **Amaç ikili:** (a) tez — Koopman tabanlı öğrenilmiş model + CBF güvenlik
 filtresi, DMD→EDMD→Deep-Koopman karşılaştırması; (b) portfolyo — çalışan,
@@ -218,6 +226,103 @@ Bu bölüm dokümanın en değerli kısmı. Her madde **ölçümle** bulundu.
     varsayımın kendisini kullanıyordu. Bir sabitin yanında "muhafazakâr"
     yazıyorsa, sistemi değiştiren her eklemede o iddiayı yeniden ölç.
 
+### BVR savaş katmanı (Faz 1.1–1.5, `bvr/combat/`)
+40. **Çoklu-örnek simülasyonda "paylaşılan çerçeve" tek doğruluk kaynağı
+    olmalı.** Her `F16Sim`/`GuidanceDriver` kendi `reset()` anını yerel
+    (0,0) sanır (JSBSim IC'si böyle çalışır, bkz. tuzak 4-5'in devamı).
+    İki uçağı aynı sahneye koymak için `dataclasses.replace()` ile
+    `north_ft`/`east_ft`'e SABİT bir ofset eklenip PAYLAŞILAN bir kopya
+    üretildi; driver'in kendi iç durumu hiç değişmedi. Bu düzeltme
+    `bvr_1v1_smoke.py`, `bvr_2v2_smoke.py` VE `ACMIRecorder` içinde AYRI
+    AYRI ama AYNI ilkeyle uygulandı — üçü de tek bir yardımcı fonksiyona
+    çıkarılabilirdi, şimdilik kod tekrarı bilerek kabul edildi (küçük, 3
+    kopya, davranışı ölçümle doğrulanmış).
+41. **Dondurulmuş bir katmanın "eğitime özgü" sandığın parçası aslında
+    sözleşmenin kendisi olabilir.** `GuidanceEnv`'den ayrıştırılan
+    `GuidanceDriver` ilk sürümde `action_rate_limit` (komut savurma
+    sınırı) uygulamıyordu — "bu bir eğitim düzenlileştirmesi, üretimde
+    gerekmez" varsayımıyla. Yanlıştı: `GuidanceConfig.action_rate_limit`
+    varsayılanı `0.25` (kapalı değil) ve dondurulmuş model TAM DA bu
+    filtre ALTINDA kalibre olmuştu. `guidance_driver_smoke.py` ile
+    yakalandı (200 adımda ~200 ft irtifa sapması); düzeltince fark <1e-11
+    (kayan nokta gürültüsü) düştü. Ders: bir üretim sürücüsü yazarken
+    "hangi filtreler eğitime özgü" sorusunu VARSAYMA, orijinal `step()`'in
+    HER satırını hesaba kat.
+42. **Füze fiziğinin dt-duyarlılığı MONOTONİK DEĞİL.** 6g manevra yapan bir
+    hedefe karşı marjinal bir angajmanda dış tik dt=0.1 (10 Hz) ile sonuç
+    (isabet/ıska), dt=0.02–0.002 arasındakinden FARKLI çıkabiliyor (bir ara
+    dt'de temiz bir ıska, hem daha kaba hem daha ince dt'lerde isabet).
+    `scripts/missile_dt_convergence.py` ile ölçüldü (gerçek Python ↔ ayrı
+    bir Node.js portu çapraz doğrulamasıyla). Çözüm: füze fiziği dış
+    muhasebe adımından bağımsız, kendi içinde N alt-adımla (varsayılan 5 →
+    50 Hz) koşuyor (`Engagement.missile_substeps`); radar/muhasebe zaman
+    sabitleri saniyeler mertebesinde olduğu için buna ihtiyaç duymuyor.
+43. **Çok nesneli telemetride İKİ AYRI hata gizli kalabilir — tek nesneyle
+    test etmek ikisini de kaçırır.** `ACMIRecorder`: (a) başlık alanları
+    (Name/Type/Color/Pilot) tek bir `bool` bayrakla tutuluyordu — sadece
+    İLK yazılan nesne başlık alıyordu, ikinci uçak/her füze isimsiz
+    görünüyordu; `set[int]` yapılıp `obj_id` başına izlenerek düzeltildi.
+    (b) konum `lon_deg`/`lat_deg`'den (her `F16Sim`'in KENDİ özel orijini)
+    değil, `north_ft`/`east_ft`'ten (PAYLAŞILAN muhasebe çerçevesi, bkz.
+    tuzak 40) TEK bir referans noktasından türetilmeliydi — aksi halde iki
+    ayrı örnekten gelen iki uçak Tacview'de ÇAKIŞIK görünür. Tek-nesneli
+    `demo_inner_loop.py` koşusu HİÇBİRİNİ yakalamazdı (tek nesnede hem
+    başlık hem çakışma sorunsuz görünür).
+44. **"Aynı anı" temsil eden iki değer, MUTLAKA aynı saatten gelmeli — iki
+    ayrı sayaçtan değil.** Çok nesneli Tacview kaydında füze/uçak aynı
+    tikte kaydediliyordu ama uçak kaydı `FlightState.t`'yi (driver'in İÇ
+    saati, ADIM SONRASI, `(k+1)·dt`) kullanıyordu; füze kaydına ise
+    betiğin YEREL döngü değişkeni `t = k·dt` (ADIM ÖNCESİ) veriliyordu.
+    İkisi aynı anı temsil ediyor sanılıyordu ama 1 dt kaymışlardı. Sonuç:
+    dosyada zaman damgaları GERİYE atlıyordu ve yeni fırlatılan bir
+    füzenin İLK konumu, atış anındaki değil BİR TİK SONRAKİ uçak
+    konumunda görünüyordu. Görünüşte "her ikisi de doğru" olan iki
+    hesaplama, kaynakları farklı olduğu için sessizce ayrıştı. Çözüm: füze
+    kaydına da uçağın kendi `st.t`'si verildi — TEK saat, iki tüketici.
+45. **Bir sonuca TEK bir olası açıklama bulununca aramayı bırakma — bu
+    HANDOFF'un kendi tuzak 31'inin bir tekrarıdır.** 1.5c/1.5e'de tüm
+    füzeler `"kor"` (datalink kaybı) ile bitiyordu ve "betikli komutan
+    her tehditte tam kaçıyor, dengelemiyor" diye yorumlanıp
+    **düzeltilmeden** bırakılmıştı — makul bir açıklamaydı ve KISMEN
+    doğruydu, ama TEK mekanizma olduğu hiç ölçülmemişti. Bağımsız bir
+    incelemede ikinci, bağımsız bir sebep çıktı: kaçış manevrası sabit
+    90° (tam beam) idi ve bu, radar gimbal sınırını (60°) aşıp **atıcının
+    kendi kilidini** kırıyordu — "kaçıyor" ile "kendi füzeni köreltiyor"
+    aynı olayın iki farklı görünümü sanılmıştı, oysa ikincisi ayrı,
+    ölçülebilir bir geometrik sınır ihlaliydi. AYRICA üçüncü bir hata daha
+    aynı köşede saklanıyordu: `Engagement.fire()`'ın füze kütlesi düşürme
+    denemesi gerçek uçuşta hiç çalışmıyordu (sadece mock testte), yani
+    "ağırlık modellendi" iddiası da (Faz 2'ye taşınacak not #4) yanlıştı.
+    Üçü de tek bir "1.5 tamam" onayının ARKASINDA gizlenmişti. Ders: bir
+    olumsuz/beklenmedik sonuca "X çünkü Y" dendiğinde, kabul etmeden önce
+    en az bir alternatif mekanizmayı (burada: gimbal/kütle) ELEMEK
+    gerekir — özellikle sonuç "zaten öyle olmasını bekliyorduk" gibi
+    geliyorsa (burada: "betik basit, tabii ki dengelemiyor" beklentisi
+    ikinci bakışı geciktirdi).
+
+46. **Başarısız olamayan test, test değildir — bu projede iki kez yazıldı.**
+    (a) HCA değişmez testi: kod `HCA = ATA − AA` hesaplıyordu, test `ATA =
+    AA + HCA` diye bakıyordu — ATA 180° yanlış olsa bile geçti (hata
+    enjeksiyonuyla kanıtlandı). (b) 1.5a sızıntı testi: iki JSBSim örneği
+    AYNI kurulduğu için sızıntı olsa da fark 0 çıkar. Ölçüt: **testi yazınca
+    koda kasıtlı hata enjekte et; kırmızıya dönmüyorsa hiçbir şey sınamıyor.**
+47. **Mock ile geçen test, gerçek yolda ölü kod olabilir.** `Engagement.fire()`
+    kütleyi `setattr(state, "mass_lb", ...)` ile düşürüyordu; mock'ta alan
+    vardı, test geçti. Gerçek `FlightState`'te alan yok → `hasattr` sessizce
+    False → füze kütlesi canlı simülasyonda HİÇ yoktu (JSBSim 22.859 lb
+    kalıyordu, 24.199 olmalıydı). Fiziğe dokunan her şey sonunda **JSBSim'in
+    kendi özelliğinden** (`inertia/weight-lbs`) okunarak doğrulanmalı.
+48. **Duman testinin kriteri en önemli sonucu içermiyorsa "geçti" denmez.**
+    1.5c/1.5e "180 s çökmeden koştu ✅" diye kapatıldı; ama 8/8 ve 16/16 füze
+    `kor` idi — isabet → imha → `hedefsiz` yolu canlı simülasyonda hiç
+    koşmamıştı. "4 uçak da hayatta" başarı gibi raporlandı. Kural: bir
+    entegrasyon testinin en az bir koşusu zincirin son halkasını üretmeli.
+49. **Etkili crank sınırı = gimbal − guidance aşımı, gimbal değil.** Radar
+    gimbal'i 60°, ama guidance komut edilen yönü aşıyor (50° komut → 65.5°
+    tepe ATA, tek gözlem). 90° ve 50° crank kendi füzeni köreltti; 35°
+    karşılıklı isabet verdi, 45° karışık. Davranış ağacı "crank 60°" diye
+    yazılırsa kendi füzesini sistematik olarak kör eder.
+
 ### Ölçüm (en çok hata yapılan yer)
 15. **Tepe değeri güvenlik metriği değil.** Tek bir −3.37 g örneği
     "bariyer tutmuyor" gibi görünür; ihlal *oranı* %0.01'di.
@@ -302,9 +407,16 @@ bvr/models/{dmd,edmd,deep_koopman}.py
 bvr/safety/cbf.py          OSQP komut yöneticisi (satır budama + ölçekleme)
 bvr/safety/robust.py       model hata marjı (park edildi)
 bvr/sysid/{excitation,collect,evaluate}.py
-bvr/envs/guidance_env.py   dış döngü RL ortamı
+bvr/envs/guidance_env.py   dış döngü RL ortamı (eğitim)
+bvr/envs/guidance_shared.py bearing/obs/aksiyon donusumleri (env+driver ORTAK)
+bvr/envs/guidance_driver.py dondurulmus guidance'in CANLI (egitim-disi) surucusu
 bvr/agents/{train_guidance,scripted_guidance}.py
 bvr/config.py              YAML → dataclass (bilinmeyen anahtar = hata)
+
+bvr/combat/geometry.py     ATA/AA/HCA/kapanma/LOS-rate (BVR temel geometri)
+bvr/combat/radar.py        RCS+Doppler notch+gimbal+kilit gecikmesi/coast
+bvr/combat/missile.py      3-DOF nokta-kutle PN fuze, boost/coast, seeker gate
+bvr/combat/engagement.py   atis yetkisi, muhimmat, olay gunlugu, N-ucakli muhasebe
 
 configs/*.yaml             deney tanımları
 data/models/*.pkl          açık isimli dinamik modeller
@@ -326,23 +438,71 @@ python scripts/mission_eval.py <model.zip> -n 40    # görev metrikleri
 python scripts/safety_eval.py -n 100               # güvenlik + GA
 python scripts/reward_audit.py <model.zip>         # ödül ayrıştırma
 python scripts/demo_inner_loop.py         # Tacview kaydı
+
+# BVR savaş katmanı (Faz 1.1-1.5)
+python -m scripts.bvr_1v1_smoke runs/reward_r3_both/sac_1999968_steps.zip \
+    --duration 180 --acmi runs/1v1.acmi
+python -m scripts.bvr_2v2_smoke runs/reward_r3_both/sac_1999968_steps.zip \
+    --duration 180 --acmi runs/2v2.acmi
+python -m scripts.missile_dt_convergence   # fuze fizigi dt-yakinsama olcumu
+python -m pytest bvr/combat/tests -q       # 46 savas katmani testi
+
 tensorboard --logdir runs/tb
 ```
 
 ---
 
-## 8. BVR fazına taşınacak tasarım notları
+## 8. Faz 2'ye (taktik komutan) taşınacak tasarım notları
 
-1. **Gözlem/aksiyon uzayı en baştan 4 uçaklık son durum için tasarlanacak**,
-   1v1'de maskeli. Aksi halde her aşamada sıfırdan eğitim gerekir — bu,
-   haftalarca GPU zamanı farkı demek.
-2. Komutan **2 Hz** (taktik kararlar saniyeler ölçeğinde; 10 Hz'de kredi
-   ataması 5 kat uzar, karşılığında hiçbir şey kazandırmaz).
-3. Düşman modeli **tak-çıkar**: 3-DOF nokta-kütle (eğitim, 10–50× ucuz) /
-   tam JSBSim (demo).
-4. **Silah kütlesi eklenmeli**: füze atışı ~350 lb ağırlık düşürür.
-   Harici tanklar angajmandan önce atıldığı için modellenmiyor.
-5. Guidance ve kalkan komutan eğitimi boyunca **dondurulmuş** olacak.
-6. Gerçek BVR akışı: tespit → sıralama → commit → atış (Fox-3) → destek →
-   crank → notch/beam → drag/abort → yeniden angajman.
-7. Temel taktik birim **iki uçaklı kol**; dört uçak = iki kol.
+> Bu bölüm Faz 1.1–1.5 BAŞLAMADAN ÖNCE yazılmıştı; artık savaş katmanı
+> (geometri/radar/füze/muhasebe/çok-uçaklı-sim) BİTTİ. Aşağıda hangi
+> maddenin gerçekleştiği, hangisinin hâlâ Faz 2'nin (taktik komutan)
+> önünde durduğu işaretlendi.
+
+1. ⬜ **Gözlem/aksiyon uzayı en baştan 4 uçaklık son durum için
+   tasarlanacak**, 1v1'de maskeli. Aksi halde her aşamada sıfırdan eğitim
+   gerekir. **Hâlâ Faz 2'nin işi** — guidance'ın kendisi 1v1 gözlem
+   uzayında dondu; komutanın gözlem/aksiyon uzayı bu maddeyi ayrıca
+   çözecek.
+2. ⬜ Komutan **2 Hz** (taktik kararlar saniyeler ölçeğinde). Değişmedi.
+3. ⬜ Düşman modeli **tak-çıkar**: 3-DOF nokta-kütle (eğitim, 10–50× ucuz)
+   / tam JSBSim (demo). Henüz yazılmadı — 1.5c/1.5e'deki "kırmızı" da
+   guidance'ın kendisiyle (aynı dondurulmuş model, ayna hedef) simüle
+   edildi, ayrı/basit bir düşman modeli DEĞİL.
+4. ✅ **Silah kütlesi eklendi ve ölçüldü — ama İKİ AŞAMADA.** İlk sürümde
+   `Engagement.fire()`'ın kütle-düşürme denemesi (`hasattr(state,
+   "mass_lb")`) SADECE mock durumlarla (`test_engagement.py`) çalışıyordu;
+   gerçek `FlightState`'te böyle bir alan yok, `combat_state` da her adım
+   yeniden üretilen bir kopya olduğu için gerçek uçuşta HİÇBİR ETKİSİ
+   yoktu — bağımsız bir incelemeyle yakalandı (bkz. tuzak 45). Gerçek
+   düzeltme `GuidanceDriver.set_payload()`: `payload_check.py`'nin ölçtüğü
+   yöntemle (pointmass[0], CG korunarak) DOĞRUDAN JSBSim'e yazıyor;
+   `Aircraft` artık tam mühimmatla (25.942 lb) trim oluyor, her atıştan
+   sonra kalan yüke göre ağırlık güncelleniyor.
+5. ✅ **Guidance ve kalkan dondurulmuş durumda çalışıyor** —
+   `GuidanceDriver` bunun için yazıldı (fizik-sadece, ödül/Gym yok);
+   1.5b'de `GuidanceEnv` ile <1e-11 tolerans içinde eşdeğerliği kanıtlandı.
+6. ✅ **Gerçek BVR akışı UÇTAN UCA çalıştığı ÖLÇÜLDÜ.** İlk ölçümde tüm
+   atışlar `"kor"` (datalink kaybı) ile sonuçlanıyordu ve bu "scriptli
+   komutan dengelemiyor" diye yorumlanmıştı — EKSİK yorumdu (bkz. tuzak
+   45): asıl sebep sabit 90° kaçışın radar gimbal sınırını (60°) aşıp
+   ATICININ KENDİ kilidini kırmasıydı. `--crank-deg 35` düzeltmesiyle
+   zincir (tespit→kilit→atış→destek→pitbull→seeker→isabet→imha) 1v1'de
+   KARŞILIKLI İMHAYA kadar uçtan uca çalıştı. Crank/notch-beam/drag-abort AYRI,
+   isimlendirilmiş taktik davranışlar olarak henüz yok — bunlar tam olarak
+   **Faz 2'nin öğrenmesi beklenen şey**, betikli komutandan beklenmiyordu.
+7. ✅ **Temel taktik birim iki uçaklı kol; dört uçak = iki kol — 1.5e'de
+   DOĞRULANDI.** 2v2 koşusu (4 `GuidanceDriver`, 4 radar, çapraz ateş,
+   16 toplam mühimmat) `Engagement`/`Radar`'da HİÇBİR kod değişikliği
+   gerektirmedi — ikisi de baştan N-uçaklı tasarlanmıştı. Bu, mimari
+   kararın (veri yapısı seviyesinde genellik) ödediği somut bir kanıt.
+8. ⬜ **YENİ (1.5b'de fark edildi, henüz çözülmedi):** dondurulmuş guidance
+   politikası SABİT HEDEF NOKTALARINA uçmak için eğitildi, düşman uçağa
+   değil (`guidance_env.py::_new_waypoint()` biri yakalanana kadar
+   değişmeyen sabit bir nokta üretir). 1v1/2v2 betikleri bunu "komutanın
+   ürettiği hareketli sanal hedefe" (TAC-08, 5-25 nmi) her tikte yeniden
+   hedefleyerek DOLAYLI olarak aşıyor — ama bu, guidance'ın GERÇEKTE
+   gördüğü eğitim dağılımının biraz dışında bir kullanım şekli. Faz 2
+   komutanı eğitilirken bu dağılım-kayması izlenmeli; eğer sorun çıkarsa
+   (ör. agresif manevra yapan hedeflere karşı guidance kalitesi düşerse)
+   ilk bakılacak yer burası.
