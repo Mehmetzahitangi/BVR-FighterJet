@@ -2,7 +2,8 @@
 
 > Bu dosya, projeyi hiç görmemiş bir oturumun (veya kişinin) devam
 > edebilmesi için yazıldı. Önce bunu, sonra `ARCHITECTURE.md` ve
-> `REQUIREMENTS.md`'yi oku. Anlık durum için `STATUS.md`.
+> `REQUIREMENTS.md`'yi oku. Anlık durum için `STATUS.md`. "Bu bir hata mı?"
+> diye başlayan araştırmaların kısa kaydı için `HATA_GUNLUGU.md`.
 
 ---
 
@@ -317,11 +318,51 @@ Bu bölüm dokümanın en değerli kısmı. Her madde **ölçümle** bulundu.
     `kor` idi — isabet → imha → `hedefsiz` yolu canlı simülasyonda hiç
     koşmamıştı. "4 uçak da hayatta" başarı gibi raporlandı. Kural: bir
     entegrasyon testinin en az bir koşusu zincirin son halkasını üretmeli.
-49. **Etkili crank sınırı = gimbal − guidance aşımı, gimbal değil.** Radar
-    gimbal'i 60°, ama guidance komut edilen yönü aşıyor (50° komut → 65.5°
-    tepe ATA, tek gözlem). 90° ve 50° crank kendi füzeni köreltti; 35°
-    karşılıklı isabet verdi, 45° karışık. Davranış ağacı "crank 60°" diye
-    yazılırsa kendi füzesini sistematik olarak kör eder.
+49. **Crank sınırı bir AÇI değil, açı+menzil çiftidir.** İlk hâli "etkili
+    sınır = gimbal − aşım ≈ 40°" idi; Faz 2.0 taraması bunu iki kez düzeltti.
+    (a) Tek gözlemle (50° → 65.5°) seçilen sabit en kötü koşulu örneklemiyor.
+    (b) Daha önemlisi: |ATA| geçici bir aşım yapıp oturmuyor, menzil
+    kapandıkça BÜYÜMEYE devam ediyor — yani "tepe ATA" ölçüm penceresi ne
+    kadar uzunsa o kadar büyük çıkıyor (60 s: 30°→51°, 90 s: 30°→70°).
+    Doğru soru "hangi açı güvenli" değil, "hangi açı HANGİ MENZİLE kadar
+    güvenli" (35° ~9 nmi, 30° ~6 nmi, 25° ~5 nmi @ |ATA|<55°). Sabit bir
+    güvenlik sayısı arayan her ölçümde önce "bu değer ne kadar SÜRE/hangi
+    menzil için geçerli" diye sor. Ayrıntı: REQUIREMENTS.md SIM2-09.
+50. **Bir mimari kusuru bulmak, onu HEMEN düzeltmek anlamına gelmez —
+    önce MALİYETİNİ ölç.** Guidance'ın saf takip (pure pursuit) kullandığı,
+    LOS dönme hızından (λ̇) habersiz olduğu ölçüldü: hedef tam karşıdayken
+    (be=0), EĞİTİM ARALIĞININ TAM İÇİNDE (3.3-14.8 nmi) bile ~34° yatış
+    komutu veriyor (bkz. SIM2-08). Bu GERÇEK bir kusur — Oransal Seyrüsefer
+    teorisinin (`a=N·V·λ̇`, projenin KENDİ füze kodunda zaten doğru
+    uygulanmış) aksine, uçağın güdümü LOS hızını hiç gözlemlemiyor. Dış bir
+    incelemenin "cross-track error eksik, retrain gerekir" ilk teşhisi yön
+    olarak doğruydu ama kavram yanlıştı (cross-track bir HATTA göre tanımlı,
+    burada tek nokta kovalanıyor). Retrain'e atlanmadı — önce
+    `scripts/pursuit_cost.py` ile gerçek angajman ölçeğinde maliyet
+    ölçüldü: zaman farkı en kötü +2.3%, yol farkı +0.1%, gimbal payı en dar
+    +41.9° (60°'lik sınırdan çok uzak). **Sonuç önemsiz çıktı, retrain
+    ERTELENDİ** — donmuş katmana (guidance+CBF, haftalarca yeniden ölçüm)
+    dokunmadan önce "bu gerçekten mission'u bozuyor mu" sorusu HER ZAMAN
+    önce sorulmalı. Tam hikaye: `HATA_GUNLUGU.md` H-06.
+51. **"56/56 test geçti" bir davranışın SINANDIĞI anlamına gelmez —
+    mutasyonla sına.** RWR'de (H-07) üç hata düzeltilip 8 test yazıldıktan
+    ve TÜMÜ yeşil olduktan SONRA, kuantizasyonu bilerek kapatan ve füzeyi
+    pitbull yerine atış anından besleyen İKİ mutasyon uygulandı — **her
+    ikisi de 56/56'yı hiç etkilemedi.** Sebep: mevcut testlerin hepsi
+    head-on (ham kerteriz=0°, kuantize edilse de edilmese de 0 kalıyor)
+    geometri kullanıyordu, ve "atış görünmez" testi atıştan sonra sadece
+    TEK TİK ilerliyordu (`missile_detect_delay_s=0.5`'i aşacak kadar
+    değil). İki test EKLENDİ (açılı geometri + atıştan sonra 5 s'lik
+    sürekli kontrol) ve mutasyonlar bu sefer YAKALANDI (dosyalar sonra
+    md5 doğrulamasıyla orijinaline geri yüklendi). **Ders: bir test paketi
+    "geçiyor" diye güvenilir değildir — yazdığın HER kritik testi bilerek
+    bozup kırmızıya döndüğünü GÖRMEDEN, o testin gerçekten bir şey
+    sınadığını varsayma.** Bu, tuzak 46/48'in ("başarısız olamayan test
+    test değildir") daha sistemli bir uygulaması: rastgele bir hata
+    enjekte etmek yerine, TAM OLARAK modelin var olma sebebi olan
+    davranışları (kuantizasyon, atış görünmezliği) hedef alan mutasyonlar
+    yazılıp test paketi buna karşı KOŞULDU. Tam hikaye: `HATA_GUNLUGU.md`
+    H-07.
 
 ### Ölçüm (en çok hata yapılan yer)
 15. **Tepe değeri güvenlik metriği değil.** Tek bir −3.37 g örneği

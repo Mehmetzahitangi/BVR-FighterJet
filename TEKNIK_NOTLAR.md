@@ -160,7 +160,7 @@ Adım 17'de. Taktik komutan (PPO, self-play, kredi atama) satırları hâlâ �
 | **Coast (kilit hafızası)** | Temas kesilince kilidin sürdüğü süre, 4.0 s. ✅ uygulandı. Notch'u kaç saniye tutman gerektiğini bu belirler. | ⚠️ ayarlanacak |
 | 📋 **Yeniden kilitlenme** | Gerçek radarda tekrar kilit, sıfırdan aramadan hızlıdır (anten nereye bakacağını bilir). Modelde **yok** — coast bitince tam sıfırlama. `reacquire_delay_s < lock_delay_s` olarak eklenebilir. | 📋 ertelendi |
 | **TWS vs STT** | Track-While-Scan birden çok hedefi izler ama zayıf kilit; Single Target Track tek hedefe sürekli aydınlatma — karşı tarafın RWR'ı ikisini **farklı görür**. | 📋 |
-| **Etkili crank sınırı** | Radar gimbal'i (60°) eksi guidance'ın yön aşımı. Ölçülen: 35° çalışıyor, 45° karışık, 50° kendi füzeni körleştiriyor (tepe ATA 65.5°). | ⚠️ eğrisi ölçülecek |
+| **Etkili crank sınırı** | Sabit bir açı DEĞİL, menzile bağlı: |ATA| menzil kapandıkça büyür, her açı belli bir menzile kadar güvenli (35° ~9 nmi, 30° ~6 nmi, 25° ~5 nmi; eşik 55°). Sağ/sol simetrik değil (SIM2-08 önyargısı). | ✅ ölçüldü (Faz 2.0, SIM2-09) |
 | **Hedef paylaşımı (sorting)** | Kol uçuşunda kanatların farklı düşmanları seçmesi. Yoksa ikisi aynı hedefe yığılır — 2v2'de 16 atışın 6'sı `hedefsiz`. | 📋 Faz 6 |
 | **Overkill** | Zaten düşecek hedefe fazladan mühimmat harcamak. `hedefsiz` sonucu bunu ölçüyor. | 📋 Faz 6 |
 | **Basamak cevabı / aşım** | Komut aniden sıçrayınca sistemin tepkisi; aşım = tepe − komut. Crank sınırını bu belirliyor (50° komut → 65.5°). | 📋 Faz 2.0 |
@@ -875,4 +875,5 @@ python -m scripts.bvr_2v2_smoke runs/reward_r3_both/sac_1999968_steps.zip \
 
 Diğer belgeler: `ARCHITECTURE.md` (katman sözleşmeleri) ·
 `REQUIREMENTS.md` (40+ gereksinim + RAD/MSL/ENG/SIM2, kriter → ölçüm → durum) ·
-`HANDOFF.md` (45 maddelik tuzak listesi) · `STATUS.md` (anlık durum)
+`HANDOFF.md` (50 maddelik tuzak listesi) · `STATUS.md` (anlık durum) ·
+`HATA_GUNLUGU.md` ("bu bir hata mı?" araştırmalarının kısa kaydı)

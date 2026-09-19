@@ -9,9 +9,86 @@
 füze, angajman muhasebesi, çok uçaklı simülasyon + Tacview) baştan sona
 kuruldu ve ölçüldü. Guidance ve kalkan zaten dondurulmuştu; bu fazda
 İKİSİNE DE dokunulmadı (`GuidanceDriver` sadece onları TÜKETİYOR).
-**Sıradaki:** Faz 2 — betikli taban (öğrenme yok): crank eğrisi → RWR →
-değerlendirme düzeneği → davranış ağacı komutanı → rakip varyantları.
-Faz planı ve alt adımlar: aşağıda "Faz planı (2–7)". PPO komutanı Faz 3'te.
+**Faz 2.0 TAMAMLANDI** (crank → tepe ATA eğrisi, `scripts/crank_sweep.py`
++ `scripts/pursuit_cost.py`). Yol boyunca iki bulgu çıktı, ikisi de kapatıldı:
+
+1. Guidance saf takip (pure pursuit) kullanıyor, LOS dönme hızından (λ̇)
+   habersiz — hedef tam karşıdayken bile (be=0) eğitim aralığının İÇİNDE
+   ~34° yatış komutu veriyor. Gerçek angajman ölçeğinde maliyeti ölçüldü
+   (`pursuit_cost.py`): önemsiz (zaman +2.3%, yol +0.1%, gimbal payı +42°).
+   **Karar: guidance/CBF retrain'i ERTELENDİ**, donmuş katmana dokunulmadı.
+   (`HATA_GUNLUGU.md` H-06, `REQUIREMENTS.md` SIM2-08)
+2. Tam tarama (9 θ × 3 irtifa × 2 Mach + yön kontrolü, 60 koşu), SIM2-07'nin
+   tek-noktalı 35° seçimini düzeltti; sonra **bağımsız bir inceleme bu
+   düzeltmeyi de düzeltti**: |ATA| geçici bir aşım yapıp oturmuyor, menzil
+   kapandıkça büyümeye devam ediyor — yani "tepe ATA" ölçüm penceresi
+   uzadıkça büyüyor (60 s'de 30°→51°, 90 s'de 30°→70°). "35 aşıyor, 30
+   aşmıyor" hükmü 60 saniyelik pencerenin eseriymiş. **Doğru çerçeve:
+   sabit açı sınırı yok, açı+menzil çifti var** — 35° ~9 nmi'ye, 30° ~6
+   nmi'ye, 25° ~5 nmi'ye kadar |ATA| < 55°. Ayrıca sağ/sol crank simetrik
+   değil (sağ kırma H-06'nın önyargısıyla güçleniyor).
+   **`CRANK_DEG_DEFAULT` 35→30**, gerekçe "35 eşiği aşıyor" değil "30,
+   kilidi ~3 nmi daha yakına kadar korur"; 1v1/2v2'de doğrulandı (2v2: 4/4
+   imha). Faz 2.3 crank'ı sabit açıyla değil geri beslemeyle sürecek.
+   (`HATA_GUNLUGU.md` H-05, `REQUIREMENTS.md` SIM2-09)
+
+**Faz 2.1 — RWR modeli TAMAMLANDI** (`bvr/combat/rwr.py`).
+Kilitli karar #4'ün ("füze uyarısı RWR ile") ilk uygulaması: betikli
+komutan artık kaçış kararını gerçek füze listesinden değil (omniscient,
+eski davranış — `--warning truth` ile hâlâ erişilebilir, regresyon
+referansı) gerçekçi bir RWR sinyalinden alıyor (`--warning rwr`,
+varsayılan; hem 1v1 hem 2v2'de). Uyarı zinciri üç aşamalı: arama → kilit
+→ füze (pitbull + arayıcı konisi) — atıştan pitbull'a kadar füzenin
+kendisi hiç görünmez, bu BVR'ın bilgi asimetrisinin ta kendisi.
+
+İlk uygulama kod incelemesinden ve 46/46 testten geçti ama bağımsız bir
+inceleme, canlı yolu ayrıca ölçünce üç gerçek hata buldu (kuantizasyon
+canlı yola hiç ulaşmıyordu, seviye hiç düşmüyordu, "arama" hiç
+beslenmiyordu) — üçü de "mekanizma doğru yazılmış ama devrede değil"
+türünden, ÜÇÜ de düzeltildi ve izole testlerle + gerçek 1v1/2v2 koşularıyla
+doğrulandı. Bağımsız incelemenin ikinci turu iki eksik daha buldu (asıl
+"kilit kesilip arama devam eder" senaryosunun testi yoktu; kuantizasyon
+hatası bir birim testiyle yakalanamazdı çünkü kablolamadaydı, kaynak-tarama
+testi eklendi) — ikisi de tamamlandı. **Üçüncü tur: mutasyon testi**
+(kuantizasyonu kapat, füzeyi pitbull yerine atış anından besle) — İKİSİ
+DE 10/10'u hiç etkilemedi, çünkü mevcut testler head-on geometri (kerteriz
+hep 0°) kullanıyordu ve "atış görünmez" testi atıştan sonra tek tik
+ilerliyordu. 2 test daha eklendi, aynı mutasyonlar TEKRAR uygulanıp bu
+sefer yakalandığı doğrulandı (dosyalar md5 ile geri yüklendi). `test_rwr.py`
+**12/12 geçiyor** (`bvr/combat/tests` toplamı **58/58**). Genel ders
+`HANDOFF.md` tuzak 51'e işlendi: "test geçiyor" güvence değildir. Tam
+hikaye: `HATA_GUNLUGU.md` H-07, `REQUIREMENTS.md` RWR-01/02/03.
+
+**Bilinen sınırlama:** 2v2'de bir uçağın RWR'ı kendi kanadının radarından
+da "kilit" alabilir (radar takım ayrımı yapmıyor, SIM2-06'nın bir uzantısı)
+— düzeltilmedi, ölçülen koşularda sonuç bozukluğu gözlenmedi.
+
+**Kullanıcı kendi elinde doğruladı:** `--warning truth` vs `rwr` A/B'sinde
+TEK koşuda sonuç değişti (truth: blue hayatta; rwr: karşılıklı imha,
+~1.1s'lik gecikme farkı yüzünden) — gerçek ama n=1, istatistik değil
+(RWR-03). Bunu ayırt etmek tam olarak Faz 2.2'nin işi.
+
+**Faz 2.2 — değerlendirme düzeneği YAZILDI, tam koşu BEKLEMEDE.**
+`bvr/combat/duel.py` (paylaşılan angajman döngüsü — `bvr_1v1_smoke.py`
+buradan çağırıyor, `crank_sweep.py`/`pursuit_cost.py`'nin `pick_target`
+import'ları da yeni konuma güncellendi) + `scripts/eval_commander.py`
+(rastgele senaryo, aynalama, ortak rastgele sayılar/CRN, Wilson GA,
+McNemar). Mimari, istatistik fonksiyonları (bilinen referans değerlerle
+doğrulandı) ve `--self-check` (10 tohum × 2 ayna × 2 kol = 40 koşu, HIZLI,
+onay gerekmez) TAMAMLANDI ve 3/3 geçti. Yol boyunca küçük ama gerçek bir
+tuzak bulundu: `DuelResult`'ın otomatik `__eq__`'i `wall_time_s`'i (asla
+aynı çıkmayan duvar-saati süresi) de karşılaştırıyordu, tekrar
+üretilebilirlik testini HER ZAMAN yanlış şekilde düşürüyordu — düzeltildi
+(`HATA_GUNLUGU.md` H-08). Ayrıca `Aircraft`'ın ölü/rastgele
+`seed=abs(hash(name))%1000`'i temizlendi, artık senaryo tohumundan
+deterministik türetiliyor. Tam hikaye: `REQUIREMENTS.md` EVAL-01.
+
+**Sıradaki adım: kullanıcının "başlat" demesiyle TAM koşu**
+(`python -m scripts.eval_commander <model> --n 200 --workers N`,
+tahmini ~800 koşu, 24 çekirdekte birkaç dakika) — ilk müşterisi
+`--warning truth` vs `rwr` karşılaştırmasını (RWR-03'ün n=1 anekdotunu)
+istatistiğe çevirmek. Faz planı ve alt adımlar: aşağıda "Faz planı (2–7)".
+PPO komutanı Faz 3'te.
 
 ### BVR kararları kilitlendi (2026-09-04)
 
@@ -144,9 +221,11 @@ açmayı gerektirir, bu fazın kapsamı dışında.
 `REQUIREMENTS.md` → §RAD/MSL/ENG/SIM2.
 
 **Faz 2'ye taşınan girdiler (SIM2-07):**
-- **Etkili crank sınırı gimbal değil (60°), ~40°.** Guidance komut edilen
-  yönü aşıyor (50° → 65.5°). 35° çalışıyor, 45° karışık, 50°+ kendi füzeni
-  körleştiriyor. Davranış ağacına girmeden önce 30–50° eğrisi ölçülecek.
+- **Etkili crank sınırı ölçüldü (Faz 2.0'da kapandı, SIM2-09).** "~40°"
+  hipotezi yanlıştı: sabit bir açı sınırı YOK. |ATA| menzil kapandıkça
+  büyüdüğü için her açı belli bir menzile kadar güvenli — 35° ~9 nmi'ye,
+  30° ~6 nmi'ye, 25° ~5 nmi'ye kadar |ATA| < 55°. `CRANK_DEG_DEFAULT = 30`.
+  Faz 2.3'te sabit açı yerine geri besleme (|ATA| eşiği) kullanılacak.
 - **Hedef paylaşımı (sorting) → Faz 6.** 2v2'de kanatlar aynı "en yakın
   düşmanı" seçip aynı hedefe yığılıyor — 16 atışın 6'sı boşa. Faz 2 1v1
   olduğu için kol uçuşu fazına bırakıldı.
@@ -229,9 +308,9 @@ fazlarda DONUK.
 
 | adım | ne | çıktı |
 |---|---|---|
-| 2.0 | Crank → tepe ATA eğrisi (izole ölçüm) | `scripts/crank_sweep.py` → komutanın crank sabiti |
-| 2.1 | **RWR modeli** (spike / atış görünmez / pitbull'da yeni tehdit) + testler | `bvr/combat/rwr.py` |
-| 2.2 | Değerlendirme düzeneği: rastgele geometri, n=200, bootstrap GA; kazanç/kayıp/berabere, `kor`, `hedefsiz`, **nz_min** | `scripts/eval_commander.py` |
+| 2.0 | Crank → tepe ATA eğrisi (izole ölçüm) | ✅ `crank_sweep.py`/`pursuit_cost.py`; komutan sabiti **30°** (gerekçe: 35°'e göre kilidi ~3 nmi daha yakına kadar korur — "35 aşıyor, 30 aşmıyor" ilk hükmü ölçüm penceresinin eseriydi, SIM2-09); SIM2-08 (pure pursuit) bulundu, maliyeti önemsiz, retrain ertelendi |
+| 2.1 | **RWR modeli** (spike / atış görünmez / pitbull'da yeni tehdit) + testler | ✅ TAMAMLANDI — `bvr/combat/rwr.py` + 1v1/2v2 bağlantısı + `test_rwr.py` (12/12, mutasyon testiyle doğrulandı); 3 hata bulunup düzeltildi (H-07); kullanıcı smoke ile doğruladı (RWR-03) |
+| 2.2 | Değerlendirme düzeneği: rastgele geometri, n=200, Wilson GA + McNemar; kazanç/kayıp/berabere, `kor`, `hedefsiz`, **nz_min** | 🔄 `bvr/combat/duel.py` + `scripts/eval_commander.py` yazıldı, öz-denetim 3/3; tam n=200 koşu kullanıcı onayı bekliyor |
 | 2.3 | Betikli komutan, davranış ağacı (yaklaş, ateş, crank, notch, drag, yeniden gir) | `bvr/agents/scripted_commander.py` |
 | 2.4 | Rakip varyantları (agresif / temkinli) + betikli-vs-betikli tablosu | Faz 4'ün geçilecek eşiği, Faz 4–5 rakip havuzu |
 

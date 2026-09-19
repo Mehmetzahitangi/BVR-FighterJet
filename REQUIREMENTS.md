@@ -1407,10 +1407,11 @@ sonucu üretir mi?" sorusu sorulmadan "düzeltilmiyor" kararı verilmeyecek.
 | 90° | — | 0 — kilit ATA −61°'de düştü |
 
 **Hâlâ açık:**
-1. **Crank → tepe ATA eğrisi ölçülmedi.** "Guidance komut edilen yönü ~15°
-   aşıyor" tek gözleme (50° → 65.5°) dayanıyor; "etkili crank sınırı ~40°"
-   bir hipotez, sınırı 35° (çalışıyor) ile 45° (karışık) arasında. Faz 2
-   davranış ağacına girmeden önce 30–50° taraması yapılmalı.
+1. ~~**Crank → tepe ATA eğrisi ölçülmedi.**~~ ✅ **KAPANDI (Faz 2.0,
+   SIM2-09).** `scripts/crank_sweep.py` ile ölçüldü. "Etkili crank sınırı
+   ~40°" hipotezi YANLIŞ çıktı: sabit bir açı sınırı yok, |ATA| menzil
+   kapandıkça büyüyor — sınır açı+menzil çiftidir (35° ~9 nmi, 30° ~6 nmi,
+   25° ~5 nmi @ 55° eşiği). `CRANK_DEG_DEFAULT` 35 → 30.
 2. **2v2'de aşırı atış (overkill):** 16 atışın 6'sı `hedefsiz` — iki kanat
    da aynı "en yakın düşmanı" seçip aynı hedefe yığılıyor. Hedef paylaşımı
    (sorting) Faz 6'ya (kol uçuşu) bırakıldı — Faz 2 betikli tabanı 1v1.
@@ -1420,6 +1421,433 @@ sonucu üretir mi?" sorusu sorulmadan "düzeltilmiyor" kararı verilmeyecek.
 4. `F16Sim(seed=...)` → `self.rng` hiçbir yerde kullanılmıyor; smoke'lardaki
    `hash(name)` her koşuda farklı tohum veriyor. Şu an zararsız (tohum ölü),
    ama biri `rng`'yi kullanmaya başlarsa tekrar üretilebilirlik sessizce bozulur.
+
+---
+
+### SIM2-08 — Guidance saf takip (pure pursuit) kullanıyor, PN değil: be=0'da bile agresif yatış (ölçüldü, retrain ERTELENDİ)
+
+**Nasıl bulundu:** Faz 2.0 (`crank_sweep.py`) öz-denetimi θ=0 (crank yok) kontrol
+koşusunda `|ATA_peak| < 5°` bekliyordu; gerçek değer ~20°'ye kadar çıktı,
+öz-denetim **FAIL** verdi. "0-20s intercept → ATA≈0 taban çizgisi" varsayımı
+tutmuyordu.
+
+**Kod hatası mı diye önce elendi.** `GuidanceEnv` ve `GuidanceDriver`'ı AYNI
+senaryoda (30 nmi, aynı seed) yan yana koşturuldu: 30 tikte aksiyon farkı
+**tam 0.0000**, gözlem farkı makine hassasiyetinde. `GuidanceDriver` doğru —
+sorun dondurulmuş POLİTİKANIN kendisinde.
+
+**Asıl bulgu — eğitim aralığının TAM İÇİNDE.** Hedef tam karşıda (bearing_error
+=0) sabitlenip sadece menzil tarandı:
+
+| menzil | action[0] (yatış) |
+|---|---|
+| 3.3 nmi (eğitim alt ucu) | +0.370 (~17°) |
+| 12 nmi | +0.760 (~34°) |
+| 14.8 nmi (eğitim üst ucu) | +0.761 (~34°) |
+| 25 nmi ve ötesi | +0.277 (~12°, menzil kanalı 3.0'da doyuyor) |
+
+Yani "3.3–14.8 nmi" diye belgelenen eğitim aralığının **TAM ORTASINDA**, hedef
+tam karşıdayken bile politika ~34° yatış komutu veriyor — bu bir kenar-durum
+değil. `command_hold_test.py`'nin bunu hiç yakalamamasının sebebi netleşti:
+o test 30 nmi kullanıyor (menzil kanalı doygun, "sakin" bölgeye denk geliyor)
+VE sadece irtifa/Mach'a bakıyor, yatışa/rotaya hiç bakmıyor.
+
+**Mekanizma (kontrol teorisi):** gözlem vektörü (`guidance_shared.py::
+build_obs`) sadece ANLIK kerteriz hatasını (`sin(be), cos(be)`) veriyor,
+**LOS DÖNME HIZINI (λ̇) hiç vermiyor**. Saf takip (pure pursuit), "kerteriz
+sıfırsa dümdüz git" diyemiyor çünkü be=0'ın iki farklı sebebi var: (a) gerçek
+çarpışma rotası (λ̇=0, doğru davranış hiçbir şey yapmamak), (b) bir dönüşün
+ORTASINDA hedefin üzerinden anlık geçiş (λ̇≠0, ama gözlemde hiç yok). Ağ,
+eğitimde be=0'ı muhtemelen hep (b) türü geçici bir an olarak gördüğü için
+"dönmeye devam et" öğrenmiş. Bunun doğru çözümü zaten bu projenin füze
+kodunda VAR (`a = N·V·λ̇`, Oransal Seyrüsefer, bkz. MSL bölümü) ama UÇAĞIN
+KENDİ güdümü hiç bu prensiple tasarlanmadı.
+
+**Dış bir incelemenin ilk teşhisi ("gözlemde cross-track error eksik, PN/lead
+gerekir, retrain edelim") yön olarak DOĞRU ama kavram YANLIŞ** çıktı:
+cross-track error bir HATTA (rota/koridor) göre tanımlanır; burada tek bir
+NOKTA kovalanıyor, hat yok. Doğru eksik kavram **LOS dönme hızı**dır.
+
+**Neden HEMEN retrain edilmedi.** Gözlem vektörünün ŞEKLİNİ değiştirmek
+(19→20 boyut, λ̇ eklemek) demek: guidance'ı yeniden eğitmek, üzerine kalibre
+edilmiş CBF kalkanını yeniden ölçmek (eğitim döngüsü içinde eğitildiği için
+sökülemez), GUI-11/stres testi/safety_eval'i hepsini yeniden koşmak —
+"Faz 2'de küçük bir alt adım" değil, **Faz 3'ün (guidance) tamamının yeniden
+açılması**. HANDOFF.md §2'nin ("katmanları aşağıdan yukarı dondur") doğrudan
+ihlali, üstelik henüz PRATİKTE bir sorun yarattığı gösterilmemişti.
+
+**Ölçüldü (`scripts/pursuit_cost.py`): gerçek angajman ölçeğinde maliyet
+ÖNEMSİZ.** Kurulum: aynı kinematik hedef, 30 nmi başlangıç, 10 nmi'ye
+kapanana kadar `mode="intercept"` (hiç crank yok), 3 irtifa × 2 Mach:
+
+| ölçüt | en kötü değer | yorum |
+|---|---|---|
+| zaman farkı (gerçek vs. sıfır-sapma ideal) | +2.3% | ~65-70 s'lik kapanmada gürültü düzeyinde |
+| yol farkı (katedilen vs. düz çizgi) | +0.1% | pratikte sıfır |
+| gimbal payı (60° − |ATA|_tepe) | +41.9° | |ATA| en fazla 18.1°'ye çıkıyor, kilide 42° pay var |
+| Mach (min) | 0.802 | sadece başlangıç hızlanma geçişi, banking kaynaklı değil |
+
+Neden bu kadar zararsız: toplam düz-çizgi mesafesi (~18 nmi) çok uzun; birkaç
+derecelik sapmanın yol uzunluğuna etkisi `(1-cosθ)` ile ölçekleniyor, küçük
+açılarda ihmal edilebilir. |ATA| tepe noktası (13-18°) gimbal sınırından
+(60°) o kadar uzak ki kilit hiçbir an tehdit altında değil.
+
+**KARAR: retrain ERTELENDİ.** Bulgu gerçek (guidance saf takip kullanıyor,
+LOS dönme hızından habersiz) ama ölçülen mission-level maliyeti önemsiz —
+donmuş katmana DOKUNULMADI. `HATA_GUNLUGU.md`'ye H-06 olarak işlendi. İleride
+bu izlenmeli: 2v2/4v4'te daha uzun süreli sürdürülen intercept fazları, ya da
+daha kısa menzilli/daha agresif komutan senaryoları maliyeti büyütebilir --
+o zaman bu karar yeniden ölçümle gözden geçirilir.
+
+**crank_sweep.py'ye etkisi:** "0-20s intercept → ATA≈0 taban çizgisi"
+varsayımı TAM tutmuyor (13-20° sapma var) ama bu sapma mission açısından
+önemsiz olduğu için sweep'e devam edilebilir — θ=0 satırı "saf crank etkisi
+sıfır" değil "taban çizgisi + sıfır ek crank" olarak okunmalı; her θ'nın
+sonucundan θ=0'ınki çıkarılarak net crank etkisi hesaplanabilir.
+
+---
+
+### SIM2-09 — crank_sweep tam taraması: 35° kendi güvenlik eşiğini aşıyor, 30°'ye düzeltildi ⚠️ AŞAĞIDA DÜZELTİLDİ
+
+**Tam tarama** (`scripts/crank_sweep.py`, 9 açı × 3 irtifa × 2 Mach + yön
+kontrolü = 60 koşu) SIM2-07'nin tek-noktalı gözlemine (50° komut → 65.5°
+tepe ATA) dayanan 35°'lik crank seçimini iki yeni bulguyla düzeltti.
+
+**Bulgu 1 — sağ/sol crank simetrik değil.** θ=35 hem +1 (sağ) hem −1 (sol)
+işaretle koşulunca:
+
+| yön | tepe ATA | aşım |
+|---|---|---|
+| sağ (+35°) | ~52-56° | **+21°** |
+| sol (−35°) | ~25-39° | **−10°** |
+
+Sebep SIM2-08'in kendisi: guidance'ın be=0'daki doğal sağa-yatık önyargısı
+sağa kırmayı GÜÇLENDİRİYOR, sola kırmayı SÖNDÜRÜYOR. Yani aynı crank_deg
+sabiti, dönüş yönüne göre FARKLI güvenlik payı bırakıyor — davranış ağacı
+sağ/sol için aynı sayıyı kullanamaz; sınır daha kötü (sağ) yöne göre
+seçilmeli.
+
+**Bulgu 2 — 35°, kendi karar kuralını geçemiyor.** Faz 2.0 protokolünün
+önceden yazılı kararı: *"komutan sabiti = en kötü koşuldaki θ_max,
+ATA_peak ≤ 55° şartını sağlayan en büyük θ"*. Sağ-kırma (bağlayıcı) verisine
+uygulanınca:
+
+| θ | en kötü \|ATA_peak\| (3 irtifa × 2 Mach) | ≤55° mi? |
+|---|---|---|
+| 25° | 46.9° | ✅ |
+| 30° | 51.8° | ✅ |
+| **35°** | **56.4°** (15 kft, M0.8) | ❌ |
+| 40° | 61.7° | ❌ |
+
+35° en kötü koşulda (15 kft, M0.8) 56.4°'ye çıkıp kendi 55°'lik eşiğini
+aşıyor — SIM2-07'nin tek gözlemi (25 kft, M0.9) bu en kötü koşulu hiç
+örneklememiş. Kurala harfiyen uyan doğru sabit **30°**.
+
+**Karar: `CRANK_DEG_DEFAULT` her iki smoke betiğinde de 35→30'a çekildi.**
+Gerçek angajmanlarda yeniden doğrulandı (`--duration 180`, varsayılan 30°):
+- 1v1: t=42.7s pitbull, **t=61.3s isabet** (red imha, blue hayatta).
+- 2v2: t=42.6-44.4s pitbull (4 çift), **t=61.2s TÜM 4 uçak da imha**
+  (blue1↔red1, blue1↔red2, red2↔blue1, red2↔blue2 — 35°'deki 2/4 imhadan
+  daha kesin bir sonuç).
+
+`bvr/combat/tests` (46/46) etkilenmedi. Ders: HANDOFF.md tuzak 46'nın
+("başarısız olamayan test test değildir") bir kuzeni — **tek gözlemle
+seçilen bir güvenlik sabiti, en kötü koşulu örneklemediği sürece
+doğrulanmış sayılmaz.** Tam hikaye: `HATA_GUNLUGU.md` H-05.
+
+**⚠️ DÜZELTME — "35 aşıyor, 30 aşmıyor" hükmü de EKSİKTİ (bağımsız bir
+inceleme yakaladı, ben kendim tekrar ürettim).** `metrics()`'te `t_peak`
+neredeyse her koşuda pencerenin TAM SON ÖRNEĞİNDE (t=79.9 s, 60 s'lik kaçış
+penceresinin bitişi) çıkıyordu — yani ölçtüğümüz "tepe ATA" gerçek bir
+geçici aşım DEĞİL, pencere bitene kadar HÂLÂ BÜYÜMEKTE olan bir sürüklenmeydi.
+Kaçış penceresini 90 s'ye uzatınca:
+
+| kaçış süresi | 30° | 35° |
+|---|---|---|
+| 60 s (orijinal ölçüm) | 51.4° ✅ | 56.4° ❌ |
+| 90 s (gerçek tepe, artık pencere sonunda değil) | **69.9° ❌** | 75.2° ❌ |
+
+**30° de 55°'yi aşıyor, sadece 35°'den DAHA GEÇ.** "35 eşiği aşıyor, 30
+aşmıyor" ayrımı crank açısının değil, keyfi seçilmiş 60 saniyelik ölçüm
+penceresinin bir eseriymiş. İkinci işaret aynı yöne bakıyor: taranan 3
+irtifa × 2 Mach ızgarası sonucu ~0.1° oynatırken (56.4 vs 56.3), pencere
+UZUNLUĞU 19° oynattı (56→75) — taranan eksenler neredeyse etkisizken asıl
+etkili eksen (süre/menzil) hiç taranmamıştı. Ayrıca `pick_target()` hedef
+Mach'ı hep `CMD_MACH=0.90`'a sabitlediği için "M0.8" satırları birkaç
+saniye içinde zaten 0.9'a yakınsıyordu — o eksen de göründüğü kadar bağımsız
+değildi.
+
+**Doğru çerçeve: açı değil, MENZİL.** Crank sonsuza kadar sürdürülmez —
+sadece tehdit geçene/pitbull olana kadar tutulur. Aynı kurulumda |ATA|'yı
+zamana değil MENZİL işaretlerine göre ölçmek anlamlı sonuç veriyor (15 kft,
+M0.8, sağ crank):
+
+| θ | 20 nmi | 15 nmi | 12 nmi | 10 nmi | 8 nmi | 6 nmi | 4 nmi |
+|---|---|---|---|---|---|---|---|
+| 25° | 15.8° | 25.9° | 32.6° | 38.1° | 44.0° | 47.0° | 52.4° |
+| 30° | 16.8° | 28.2° | 35.7° | 42.0° | 49.1° | 52.3° | 59.8° |
+| 35° | 17.8° | 30.6° | 39.1° | 46.1° | 54.4° | 58.3° | 62.4° |
+
+Yorum: her crank açısının güvenli olduğu bir menzil bandı var — 35° ~9 nmi'ye
+kadar, 30° ~6 nmi'ye kadar, 25° ~5 nmi'ye kadar güvenli kalıyor. Uzak
+menzilde (15 nmi+) üçü de rahat, aralarındaki fark sadece birkaç derece.
+
+**Karar (değişmedi ama gerekçesi değişti): `CRANK_DEG_DEFAULT=30` KALIYOR.**
+30° "35 aşıyor da 30 aşmıyor" diye değil, **"30, kilidi 35'e göre ~3 nmi
+daha yakın menzile kadar koruyor"** diye tercih ediliyor — küçük ama gerçek
+bir fark, "sonsuza kadar güvenli" iddiası değil.
+
+**Faz 2.3'e (davranış ağacı) taşınan tasarım önerisi:** komutan crank'ı
+SABİT bir açıyla değil, GERİ BESLEMEYLE sürmeli — |ATA| belli bir eşiği
+(ör. 50°) geçerse açıyı otomatik kıs. Bu hem sağ/sol asimetrisini hem de
+menzil/süre sürüklenmesini kendiliğinden çözer, elle ayarlanan tek bir sayı
+yerine duruma uyarlanan bir kural koyar. Açık soru: pitbull menzili ~8 nmi
+olduğu için, uçağın 8 nmi altında kilidi korumaya ZORUNLU olması bile
+gerekmeyebilir (füze zaten bağımsız); bu kısıt Faz 2.3'te netleşecek.
+
+Ders (bir kez daha, ama farklı bir açıdan): **bir ölçüm aracının kendi
+gizli varsayımlarını (burada: pencere uzunluğu) fark etmek, ölçtüğü şeyi
+fark etmek kadar önemli.** İlk turda "hangi θ eşiği aşıyor" sorusunu
+sorarken "ne kadar SÜRE için" sorusunu sormamıştım.
+
+---
+
+## 11. RWR (Radar Uyarı Alıcısı) — Faz 2.1
+
+### RWR-01 — model ve canlı yola bağlama
+
+**Ne işe yarıyor:** Kilitli karar #4 ("füze uyarısı RWR ile, MAW değil")
+buraya kadar hiç uygulanmamıştı — betikli komutan kaçış kararını doğrudan
+`eng.missiles` listesinden alıyordu, yani uçak füzeyi ATILDIĞI ANDA
+hiçbir sensöre ihtiyaç duymadan "görüyordu". `bvr/combat/rwr.py`
+(`RWRConfig`, `RWRContact`, `RWR`) bu bilgiyi gerçekçi şekilde geri
+kısıtlıyor: uçak sadece (a) düşman radarının aydınlatması (arama/kilit,
+`Radar.update()`'in zaten ürettiği `detected`/`tracked`) ve (b) füzenin
+kendi arayıcısının açılması (pitbull + arayıcı konisi içinde olmak) kadarını
+görür. **Menzil ve füzenin gerçek konumu YOK** — `RWRContact`'ta böyle bir
+alan bilerek açılmadı (yapısal kilit).
+
+Mimari: `Engagement.update()` her (atıcı, hedef) çifti için zaten
+`relative_geometry`+`Radar.update()` çağırıyordu (bkz. RAD bölümü);
+RWR sadece bu SONUCU (önceden çöpe giden `RadarContact` dönüş değeri)
+biriktirip TERS yönden (hedefin burnuna göre) ilgili `RWR.feed_signal()`'a
+yönlendiriyor. Füze tehdidi için `missile.py`'nin kendi arayıcı-kilidi
+formülü (`off_boresight_deg`) modül seviyesine çıkarılıp HEM füzenin kendi
+pitbull mantığı HEM RWR aynı fonksiyonu kullanıyor — tek doğruluk kaynağı.
+
+**Uyarı zincirindeki asıl değer, boşlukta:** atıştan pitbull'a kadar
+(ölçülen 1v1'de ~40 s) füzenin kendisi hiç görünmez — atıcının radar
+kilidi (varsa) hâlâ görünür, ama "füze havada mı" sorusu doğrudan
+cevaplanamaz. Bu, BVR'ı ilginç yapan bilgi asimetrisinin tam kendisi.
+
+**Bilerek modellenmeyenler:** menzil, füzenin gerçek konumu, atış anının
+kendisi, irtifa/yükseliş açısı, PRF/tip tanıma, TWS/STT ayrımı, LPI,
+karıştırma. Hepsi gerçek ama şu an taktik kararı değiştirmiyor.
+
+Bir tanesi ayrıca not edilmeli çünkü **taktik sonucu var: tek yönlü yol
+kaybı.** Gerçekte RWR sinyali TEK yön (düşmandan bana) kat eder, radar
+yankısı ise GİDİP GELİR (iki yön) — bu yüzden gerçek bir RWR, düşmanı o
+seni görmeden ÖNCE duyar ("ilk uyarı" avantajı). Bizim modelde uyarı,
+düşmanın radarının beni tespit/kilit etmesine bağlı, yani bu erken-duyma
+avantajı YOK. Eklemek ucuz (`detect_range_nm`'e bir çarpan), ama önce
+ajanların bunu sömürüp sömürmediği görülmeli — Faz 2.4/3'te ölçülüp
+karara bağlanacak.
+
+### RWR-02 — bağımsız incelemede bulunan üç hata (hepsi düzeltildi)
+
+İlk uygulama kod incelemesinden geçti (46/46 test, gerçek 1v1'de "atış
+görünmez" davranışı bile doğru çalışıyordu) ama bağımsız bir inceleme,
+canlı yolu (smoke betiğinin gerçekte OKUDUĞU değerleri) ayrıca ölçünce üç
+gerçek hata buldu — tam hikaye `HATA_GUNLUGU.md` H-07'de, özet:
+
+1. **Kuantizasyon canlı yolda hiç uygulanmıyordu.** `RWR.update()`
+   kuantize edilmiş `RWRContact` listesini doğru üretiyordu ama dönüş
+   değeri `Engagement.update()` içinde hiçbir yere kaydedilmiyordu; smoke
+   betiği bunun yerine `rwr._tracks[...].last_bearing` gibi ÖZEL bir alana
+   erişip HAM (kuantize edilmemiş) açıyı okuyordu. Ölçülen fark: ham
+   +10.26° vs kuantize olması gereken +15.00°. Bu, MSL kütlesi hatasıyla
+   (RWR-01'in referans verdiği "canlı yola hiç ulaşmayan mekanizma" deseni)
+   aynı aile: mekanizma doğru yazılmış ama gerçek tüketici ona hiç
+   erişmiyor. **Düzeltme:** `RWR.contacts()` public okuyucusu eklendi,
+   `RWR.update()` sonucunu kendi içinde önbelleğe alıyor; smoke betikleri
+   artık SADECE bunu (veya `get_worst_threat()`'i) çağırıyor, özel alana
+   dokunmuyor.
+2. **Seviye hiçbir zaman düşmüyordu.** `feed_signal()` sadece YÜKSELTİYORDU
+   (`hierarchy[kind] > hierarchy[current_kind]`); düşüş yolu hiç yazılmamıştı.
+   Ölçüldü: "kilit" bir kez raporlanınca, sonrasında sadece "arama"
+   beslense bile RWR sonsuza kadar "kilit" göstermeye devam ediyordu.
+   **Düzeltme:** her seviye (arama/kilit/füze) artık KENDİ bağımsız
+   yükselme (`rise_progress`) ve hafıza (`hold_timers`) sayacını tutuyor;
+   raporlanan seviye, o an hâlâ "taze" (hold süresi dolmamış) olan en
+   yüksek seviye. İzole test: "kilit" beslendikten sonra 2 s (`hold_s`)
+   sadece "arama" beslenince doğru şekilde "arama"ya geriliyor.
+3. **"arama" aşaması hiç beslenmiyordu.** `Engagement.update()`'teki
+   kablolama sadece `contact.tracked` → "kilit" durumunu işliyordu;
+   `contact.detected and not contact.tracked` → "arama" dalı hiç yoktu.
+   Üç aşamalı zincir fiilen iki aşamaya inmişti, `detect_delay_s`'in
+   gerekçesi (tarama sırasında yanlış alarmı önlemek) boşta duruyordu.
+   **Düzeltme:** ayrım eklendi.
+
+**Ders (H-07'nin özeti):** üçü de "kod çalışıyor GİBİ görünüyordu" —
+46/46 test geçiyordu ve "atış görünmez" davranışı GERÇEKTEN doğruydu
+(bu üç hatadan etkilenmeyen bir yol). Ama hiçbir test seviyenin
+DÜŞTÜĞÜNÜ, kuantizasyonun CANLI YOLA ulaştığını, ya da "arama"nın hiç
+üretildiğini kontrol etmiyordu — eksik yarısı hiç TETİKLENMEYEN bir
+durum makinesi, çalışan bir durum makinesinden ayırt edilemez.
+
+**Doğrulama (düzeltme sonrası):** izole testler (kuantizasyon, seviye
+düşüşü, tam sessizlikte silinme) 3/3 geçti; gerçek 1v1 (`--warning rwr`,
+varsayılan): kilit t=3.5s'de kuantize 0.0°, karşılıklı isabet t=61.2s
+(truth moduna göre ~1 s'lik makul bir gecikme farkıyla — beklenen
+gerileme). 2v2'ye de aynı `--warning truth|rwr` bayrağıyla bağlandı:
+4 uçaklı gerçek koşu (RWR modu) sorunsuz, 3/4 uçak imha. `bvr/combat/tests`
+46/46 etkilenmedi.
+
+**Bilinen sınırlama (2v2, düzeltilmedi — RAD bölümündeki mevcut
+sadeleştirmenin bir uzantısı):** `Engagement.update()`'in radar döngüsü
+takım ayrımı yapmadığı için (bkz. SIM2-06 "Bilinen sadeleştirme"), bir
+uçağın RWR'ı KENDİ KANAT UÇAĞININ radarından da "kilit" sinyali alabilir.
+Radar için bu zararsızdı (ateş yetkisi zaten çapraz-takım kontrolüyle
+sınırlı) ama RWR-güdümlü kaçışta, teorik olarak bir uçak kendi kanadını
+tehdit sanıp gereksiz kaçabilir. Ölçülen 2v2 koşularında gözlenen bir
+sonuç bozukluğu yok (angajmanlar normal şekilde sonuçlanıyor) ama bu,
+gerçek bir IFF (dost/düşman) ayrımı eklenene kadar açık bir sınırlama
+olarak not düşülüyor.
+
+**`test_rwr.py` yazıldı — 12/12 geçiyor** (`bvr/combat/tests` toplamı artık
+**58/58**). Öncelik listesindeki 8 madde + bağımsız incelemenin ikinci
+turda istediği 2 ek test: detect_delay debounce, hold_s düşüşü (tam
+sessizlik), **"kilit kesilip arama devam ederse seviyenin gerçekten
+arama'ya düşmesi"** (H-07 Hata-2'nin asıl senaryosu — ilk testin
+yakalamadığı, tam sessizlikten FARKLI), arama/kilit önceliği, yapısal
+"range yok" kilidi, atış görünmezliği (en kritik), pitbull'da "fuze"
+belirmesi, 2v2 koni testi, kendi radarımın kendi RWR'ımı tetiklememesi,
+ve **smoke betiklerinin `_tracks` gibi özel bir alana asla erişmediğini**
+doğrulayan yapısal (kaynak-tarama) bir test — Hata-1'in tek örneğini değil
+SINIFINI kapatır. 2v2'nin gerçek smoke koşusuyla son doğrulaması
+(`--warning rwr`) kullanıcı tarafından yapıldı.
+
+**Mutasyon testiyle 2 ek boşluk bulundu (10/10 "geçiyor" yeterli
+değilmiş).** Bağımsız bir inceleme, testler yeşilken KODU BİLEREK
+BOZDU: (a) kuantizasyonu kapattı, (b) füzeyi pitbull yerine atış anından
+besledi. **İkisi de 56/56'yı hiç etkilemedi.** Sebep: mevcut Engagement
+testlerinin HEPSİ head-on (ham kerteriz=0°, kuantize edilse de edilmese
+de 0 kalıyor) geometri kullanıyordu; "atış görünmez" testi de atıştan
+sonra sadece TEK TİK ilerliyordu (`missile_detect_delay_s=0.5`'i aşacak
+kadar değil). İki test eklendi: `test_10` (bilerek AÇILI bir geometri,
+`RWR._quantize_bearing`'in KENDİ formülüyle hesaplanan beklenen değerle
+canlı yoldan geleni karşılaştırır) ve `test_5b` (atıştan sonra 5 s boyunca
+HER TİKTE "fuze" sızmadığını kontrol eder). Aynı iki mutasyon TEKRAR
+uygulanıp bu sefer İKİSİNİN DE yakalandığı doğrulandı (dosyalar md5 ile
+orijinaline geri yüklendi). `bvr/combat/tests` artık **58/58**. Genel ders
+`HANDOFF.md` tuzak 51'e işlendi: "test geçiyor" güvence değildir, testi
+bilerek bozup kırmızıya döndüğünü GÖRMEDEN bir şey sınadığı varsayılamaz.
+
+### RWR-03 — `truth` ↔ `rwr` A/B'sinde tek koşuda sonuç değişti (anekdot, 2.2'yi doğrular)
+
+Aynı 1v1 senaryosu, tek fark uyarı kaynağı: `--warning truth` (eski,
+omniscient) blue'yu hayatta bıraktı, `--warning rwr` (gerçekçi) karşılıklı
+imhayla sonuçlandı. Sebep izlendi: `truth` modunda kaçış t=2.4s'de (füze
+atılır atılmaz) başlıyordu; `rwr` modunda kilit doğrulanana kadar
+t=3.5s'ye erteleniyor. **1.1 saniyelik gecikme sonucu çevirdi.**
+
+Bu, bilgi kısıtlamasının GERÇEKTEN taktik sonucu olduğunun bir kanıtı —
+ama TEK koşu, TEK tohum. GUI-02'nin öğrettiği ders burada da geçerli:
+"tek koşuda sonuç değişti" bir istatistik değil bir anekdot; sonucun ne
+kadar bıçak sırtı (marjinal) olduğunu gösteriyor olabilir de, gerçek bir
+etkiyi de gösteriyor olabilir — n=1 ile ayırt edilemez. Faz 2.2'nin
+(n=200, bootstrap GA) var olma sebeplerinden biri tam olarak bu: bu
+gözlemin gürültü mü gerçek etki mi olduğunu, `truth` ↔ `rwr` karşılaştırması
+üzerinden ilk ölçeceği şey olacak.
+
+---
+
+## 12. Değerlendirme Düzeneği (EVAL) — Faz 2.2
+
+### EVAL-01 — mimari: tek angajman kaynağı, rastgele senaryo, aynalama, CRN, McNemar/Wilson
+
+**Ne işe yarıyor:** RWR-03'ün gösterdiği gibi tek bir angajmanın sonucu
+anekdot — 1.1 saniyelik bir gecikme farkı sonucu çevirmişti. Bu düzenek
+"hangi komutan/uyarı modu daha iyi" sorusunu güven aralığıyla cevaplıyor.
+Faz 4'ün kabul ölçütü ("RL, betikli tabanı geçsin, güven aralıkları
+örtüşmesin") aynı bu araçla ölçülecek.
+
+**Mimari — tek kaynak.** `bvr_1v1_smoke.py`'nin angajman döngüsü
+`bvr/combat/duel.py::run_duel()`'e taşındı; hem duman testi hem
+değerlendirme aracı (`scripts/eval_commander.py`) onu çağırıyor —
+`crank_sweep.py`'nin `pick_target`'ı kopyalamayıp import etme gerekçesiyle
+aynı (iki kopya olursa biri düzelir diğeri unutulur, bu projede fiilen
+iki kez oldu: füze kütlesi, RWR kablolaması). `scripts/crank_sweep.py` ve
+`scripts/pursuit_cost.py`'nin `pick_target`/`CMD_MACH` import satırları da
+yeni konuma (`bvr.combat.duel`) güncellendi.
+
+**Rastgele senaryo:** `DuelScenario` — ayrım (25-40 nmi), açılı yaklaşım
+(±60°), yanal ofset (±10 nmi), irtifa (her iki taraf BAĞIMSIZ, 15-35 kft),
+Mach (0.75-0.95), yakıt (%50-100), türbülans (%30 olasılık, 0-60 fps).
+Hepsi TEK bir tam sayı tohumdan `numpy.random.default_rng` ile SIRALI
+üretiliyor — aynı tohum her zaman aynı senaryoyu (ve JSBSim seed'leri
+sabit olduğu için aynı sonucu) üretir.
+
+**Tekrar üretilebilirlik için düzeltilen eksik:** `Aircraft.__init__`
+eskiden `seed=abs(hash(name)) % 1000` kullanıyordu — `hash()` Python
+süreçler arası RASTGELE (hash randomization), yani "tekrar üretilebilir"
+iddiası kağıt üzerindeydi. `duel.py::Aircraft` artık seed'i AÇIKÇA parametre
+olarak alıyor, `run_duel()` bunu `scenario.seed`'den türetiyor
+(`seed*2`/`seed*2+1`) — deterministik.
+
+**Aynalama:** SIM2-08'de ölçülen "guidance be=0'da bile sağa yatık"
+önyargısı rastgele senaryolara sistematik karışabilir. Her senaryo NORMAL
+ve DOĞU-BATI AYNA görüntüsüyle (aspect/lateral/türbülans yönü işaret
+değiştirir) olmak üzere iki kez koşulur — kendisiyle döven bir komutanın
+POOLED (normal+ayna) kazanma oranı ~%50 olmalı.
+
+**Ortak rastgele sayılar (CRN):** iki kol (`truth`↔`rwr`) AYNI senaryo
+tohumunda koşturulur — aynı rüzgar, aynı geometri, tek fark komutan/uyarı
+modu. Fark senaryo gürültüsüne karışmaz (guidance fazının "blok etkisi"
+dersinin doğrudan karşılığı).
+
+**İstatistik:**
+- **Wilson skor aralığı** (kapalı form, bootstrap değil — hem daha doğru
+  hem hesapsız) tek bir oran (kazanma oranı) için. Doğrulandı:
+  `wilson_interval(100, 200)` → `[0.431, 0.568]`, yarı genişlik ≈0.069
+  (beklenen ~%7 ile eşleşiyor).
+- **McNemar kesin testi** (binom tabanlı) eşleşmiş A/B için — SADECE
+  uyumsuz çiftler (bir kol kazandı diğeri kazanmadı) bilgi taşır.
+  Doğrulandı: `mcnemar_p_value(10, 2)` → `p≈0.039` (bilinen referansla
+  eşleşiyor), `mcnemar_p_value(5, 5)` → `p=1.0` (tam simetrik, beklenen).
+
+**Paralelleştirme:** `multiprocessing.Pool`, model WORKER BAŞINA BİR KEZ
+yüklenir (`_worker_init`), görev başına değil — tek bir angajmanın gerçek
+maliyeti (~2.5-4 s, SB3+JSBSim başlatma dahil değil) ölçüldüğünde bunun
+önemi netleşti. Yan fayda: her koşu ayrı süreçte olduğu için 1.5a'nın
+"iki JSBSim örneği birbirine sızıyor mu" sorusu süreç izolasyonuyla
+otomatik kapanıyor.
+
+**Öz-denetim (`--self-check`, HIZLI, onay gerekmez) — 10 tohum × 2 (ayna)
+× 2 (kol) = 40 koşu ile doğrulandı:**
+
+| kontrol | sonuç |
+|---|---|
+| Tekrar üretilebilirlik (aynı tohum 2 kez) | ✅ birebir aynı |
+| Ayna dengesi + kendine-karşı (pooled kazanma oranı) | ✅ 6/20=0.30, %95 GA [0.15,0.52] — 0.5 içeriyor (n=10 küçük, GA geniş) |
+| Zaman aşımı oranı | ✅ %0 (senaryolar gerçekten sonuçlanıyor) |
+
+**Bulunan bir gerçek tuzak (kendi mutasyonuyla yakalandı, düzeltildi):**
+`DuelResult` düz bir `@dataclass` olduğu için otomatik `__eq__` TÜM
+alanları karşılaştırır — `wall_time_s` (gerçek duvar-saati süresi) ASLA
+iki koşuda aynı çıkmaz. İlk deneme `r1 == r2` şeklinde karşılaştırdı ve
+**HER ZAMAN False döndü**, tekrar üretilebilirlik gerçekte sağlanmışken
+bile. Düzeltme: karşılaştırmadan önce `dataclasses.replace(r, wall_time_s=0.0)`
+ile bu alan sıfırlanıyor. Ders: bir sonuç nesnesine "bu koşuya özgü,
+belirsiz" bir alan (performans ölçümü gibi) eklerken, o nesnenin eşitlik/
+tekrar-üretilebilirlik testlerinde KULLANILMAYACAĞINI açıkça düşünmek
+gerekir — otomatik `__eq__` bunu bilmez. `HATA_GUNLUGU.md` H-08.
+
+**Kasıtlı olarak YAPILMAYAN (kapsam dışı, ileriki fazlar):** 2v2'nin
+`duel.py`'ye taşınması (Faz 6, kol uçuşu); `bvr_2v2_smoke.py` hâlâ kendi
+ayrı (kopya) angajman mantığını kullanıyor. Tam n=200 istatistiksel
+karşılaştırma HENÜZ KOŞULMADI — kullanıcının "uzun koşu" onayını
+bekliyor (bkz. STATUS.md).
 
 ---
 
