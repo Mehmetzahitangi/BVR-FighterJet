@@ -68,7 +68,7 @@ TEK koşuda sonuç değişti (truth: blue hayatta; rwr: karşılıklı imha,
 ~1.1s'lik gecikme farkı yüzünden) — gerçek ama n=1, istatistik değil
 (RWR-03). Bunu ayırt etmek tam olarak Faz 2.2'nin işi.
 
-**Faz 2.2 — değerlendirme düzeneği YAZILDI, tam koşu BEKLEMEDE.**
+**Faz 2.2 — değerlendirme düzeneği YAZILDI; ilk koşu geçersizdi, düzeltilmiş koşu TAMAM (EVAL-03).**
 `bvr/combat/duel.py` (paylaşılan angajman döngüsü — `bvr_1v1_smoke.py`
 buradan çağırıyor, `crank_sweep.py`/`pursuit_cost.py`'nin `pick_target`
 import'ları da yeni konuma güncellendi) + `scripts/eval_commander.py`
@@ -83,12 +83,53 @@ aynı çıkmayan duvar-saati süresi) de karşılaştırıyordu, tekrar
 `seed=abs(hash(name))%1000`'i temizlendi, artık senaryo tohumundan
 deterministik türetiliyor. Tam hikaye: `REQUIREMENTS.md` EVAL-01.
 
-**Sıradaki adım: kullanıcının "başlat" demesiyle TAM koşu**
-(`python -m scripts.eval_commander <model> --n 200 --workers N`,
-tahmini ~800 koşu, 24 çekirdekte birkaç dakika) — ilk müşterisi
-`--warning truth` vs `rwr` karşılaştırmasını (RWR-03'ün n=1 anekdotunu)
-istatistiğe çevirmek. Faz planı ve alt adımlar: aşağıda "Faz planı (2–7)".
-PPO komutanı Faz 3'te.
+**2v2 ayrışmaya karşı korundu (EVAL-01b).** `run_duel()` 1v1'e sabit
+kaldı (2v2'ye genişletmek Faz 6'nın işi), ama `bvr_2v2_smoke.py` artık
+`Aircraft`/`pick_target`/sabitleri `duel.py`'den import ediyor — kendi
+kopyası yok, komutan/crank değişince geride kalamaz. Refaktör öncesi/sonrası
+2v2 çıktısı `diff` ile birebir aynı (42 olay). `test_duel.py` (8 test)
+kopyanın geri gelmesini kilitliyor, mutasyonla sınandı. `bvr/combat/tests`
+toplamı **108/108** (EVAL-02: test_duel 9/9b/10; EVAL-03b: `test_eval_stats.py` 6 + engagement `test_10`; EVAL-04/06: `test_duel_gate.py` 12; `test_duel_side_counts.py` 4). `pytest.ini` eklendi (osqp uyarı gürültüsü süzüldü).
+
+**İlk tam koşu (n=200, 800 savaş, 259 s) yapıldı — ama ÖLÇÜM ARACI
+üç yerden hatalıydı (EVAL-02, H-09, tuzak 52).** (1) Koltuk önyargısı:
+mavi, aynı modelin kendisine karşı bile karar verilenlerin %70'ini
+kazanıyordu (mavi başlangıç |ATA| 8.6° vs kırmızı 30.3°) → mavinin yönü de
+artık aynı dağılımdan çekiliyor. (2) `nz_min` işareti ters okunuyordu (ham
+`st.nz` düz uçuşta −1) → `g = −st.nz`, `nz_max` eklendi. (3) Öz-denetim
+kriteri beraberlikleri saymıyordu → geometri simetri + karar verilenlerde
+koltuk payı kontrolü, tam rapora yerleşik uyarı. İlk koşunun sayıları
+(truth 0.388 / rwr 0.367, McNemar 13:5, p=0.096 — 400 çiftin yalnız 18'i
+uyumsuz) asimetrik dağılımda ölçüldü, **atıf yapılmayacak**.
+
+**Faz 2.2 KAPANDI (EVAL-03, düzeltilmiş araçla tam koşu, 800 savaş).** Koltuk dengesi düzeldi (mavi payı
+0.49/0.50). truth 0.253 [0.212, 0.297] vs rwr 0.223 [0.184, 0.266]; senaryo-kümelenmiş eşleşmiş test 18:6,
+p=0.023 — RWR'nin bedeli küçük ama gerçek. Savaşların ~%50'si sonuçsuz bitiyor (mühimmat tükendi).
+Bağımsız inceleme (EVAL-03b) sayıları doğruladı; araca kümelenmiş test, `iska` zinciri testi ve senaryo
+sütunları eklendi (H-10, H-11). Ham veri: `runs/eval_truth_vs_rwr_v2.csv`.
+
+### Faz 2.3 ÖN ÖLÇÜMLERİ (EVAL-04…11) — Faz 2.3'ün KENDİSİ (davranış ağacı komutan) HENÜZ BAŞLAMADI
+
+> `bvr/agents/scripted_commander.py` YOK. Aşağıdakiler, 2.3'ün NASIL tasarlanacağını belirleyen ölçümlerdir.
+> (Önceki sürümde bu bölüm yanlışlıkla "Faz 2.3 açıldı" diye etiketlenmişti ve paragraflar iç içe geçmişti.)
+
+| deney | soru | sonuç | davranış ağacına etkisi |
+|---|---|---|---|
+| EVAL-04/05 | Atış menzil kapısı, TEK taraf (mavi 25 / kırmızı 35) | tahmin ÇÜRÜDÜ: kazanma aynı (p=0.90), mavi kaybı 89→120 (25:1) | Menzil kapısı GİRMEZ |
+| EVAL-06/07 | Kapı İKİ tarafa (25v25), taze tohum | toplam isabet +%23 (p=7.5e-7) ama kazanç kör füzelerin çöküşünden, tükenme %71'de DEĞİŞMEDİ (H-13) | Kapı küçük kaldıraç (+1.3 puan) |
+| EVAL-08 | EVAL-05 B kolunun taze tohumda tekrarı | tekrarlandı (7:53 birleşik); "kaçış–kör eşleşmesi" mekanizması çürüdü (H-14) | Geç atan yarışı kaybeder |
+| EVAL-09/10 | Kaçış tamamen kapalı (tanı) + H-15 kapanışı | ≥1 isabetle biten savaş %57.8 → %100; komutan savaşın %96'sını kaçışta geçiriyor; koltuk uyarısı şans (H-15) | Kaçış, füzeleri yenen ana şey |
+| **EVAL-11** | Kaçış tetikleyicisi gecikmesi (T = 0 / 15 s / ∞) | **T=∞ (yalnız aktif arayıcıda kaç): net skor −2 → +144 (p=8e-15)**; kayıp yalnız +%33; iki tahminim de YANLIŞ (H-16) | **Mevcut "kilitte kaç" tabanı SÖMÜRÜLEBİLİR; kaçış tetikleyicisi fuze-tabanlı olmalı** |
+
+**2.3'e girdi olan bulgular:** (1) atış: kilit gelince en erken at, menzil kapısı YOK; (2) kaçış: radar
+kilidinde değil aktif arayıcı (fuze) görününce başlat — mevcut taban zayıf; (3) crank: sabit açı yerine
+|ATA| geri beslemesi (SIM2-09); (4) kaçış geometrisi (crank vs beam/notch) denenmedi.
+
+**2.3 ÖNCESİ HAZIRLIK YAZILDI:** `REQUIREMENTS.md` §13 (kontrol listesi, 2.3/2.4/tez notları, kalibrasyon düğmesi, 2.3'ün "neden/ne işe yarar/ne bekliyoruz" yazısı). Yeni bulgular: füze zarfı irtifaya çok bağlı (kafa kafaya Rmax 22.8/32.7/49.0 nmi @15/25/35 kft) ve `min_speed_mach=1.5` bir KALİBRASYON DÜĞMESİ (1.0 → 46 nmi); sabit menzil kapısı etkisi irtifa dilimlerinde farklı (H-17). **Çalışma modu: öğretici (Zahit kodu yazar).**
+
+**Sıradaki:** Faz 2.3'ü BAŞLAT (davranış ağacı komutan, `scripted_commander.py`). Betikli-vs-betikli politika
+matrisi (T ∈ {0, 15, ∞} × {0, 15, ∞}) Faz 2.4'ün ("rakip varyantları + betikli-vs-betikli tablosu") işidir.
+Faz planı: aşağıda "Faz planı (2–7)". PPO komutanı Faz 3'te.
 
 ### BVR kararları kilitlendi (2026-09-04)
 
@@ -310,8 +351,8 @@ fazlarda DONUK.
 |---|---|---|
 | 2.0 | Crank → tepe ATA eğrisi (izole ölçüm) | ✅ `crank_sweep.py`/`pursuit_cost.py`; komutan sabiti **30°** (gerekçe: 35°'e göre kilidi ~3 nmi daha yakına kadar korur — "35 aşıyor, 30 aşmıyor" ilk hükmü ölçüm penceresinin eseriydi, SIM2-09); SIM2-08 (pure pursuit) bulundu, maliyeti önemsiz, retrain ertelendi |
 | 2.1 | **RWR modeli** (spike / atış görünmez / pitbull'da yeni tehdit) + testler | ✅ TAMAMLANDI — `bvr/combat/rwr.py` + 1v1/2v2 bağlantısı + `test_rwr.py` (12/12, mutasyon testiyle doğrulandı); 3 hata bulunup düzeltildi (H-07); kullanıcı smoke ile doğruladı (RWR-03) |
-| 2.2 | Değerlendirme düzeneği: rastgele geometri, n=200, Wilson GA + McNemar; kazanç/kayıp/berabere, `kor`, `hedefsiz`, **nz_min** | 🔄 `bvr/combat/duel.py` + `scripts/eval_commander.py` yazıldı, öz-denetim 3/3; tam n=200 koşu kullanıcı onayı bekliyor |
-| 2.3 | Betikli komutan, davranış ağacı (yaklaş, ateş, crank, notch, drag, yeniden gir) | `bvr/agents/scripted_commander.py` |
+| 2.2 | Değerlendirme düzeneği: rastgele geometri, n=200, Wilson GA + McNemar; kazanç/kayıp/berabere, `kor`, `hedefsiz`, **nz_min** | ✅ KAPANDI — düzeltilmiş araçla tam koşu (EVAL-03): truth 0.253 vs rwr 0.223, p=0.029 |
+| 2.3 | Betikli komutan, davranış ağacı (yaklaş, ateş, crank, notch, drag, yeniden gir) | ⬜ **BAŞLAMADI** (`bvr/agents/scripted_commander.py` yok). Ön ölçümler EVAL-04…11 TAMAM ve tasarımı belirledi (yukarıdaki bölüm) |
 | 2.4 | Rakip varyantları (agresif / temkinli) + betikli-vs-betikli tablosu | Faz 4'ün geçilecek eşiği, Faz 4–5 rakip havuzu |
 
 **Neden 2.1 (RWR) şart:** kilitli karar #4 "füze uyarısı RWR ile" diyor,

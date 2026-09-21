@@ -363,6 +363,110 @@ Bu bölüm dokümanın en değerli kısmı. Her madde **ölçümle** bulundu.
     davranışları (kuantizasyon, atış görünmezliği) hedef alan mutasyonlar
     yazılıp test paketi buna karşı KOŞULDU. Tam hikaye: `HATA_GUNLUGU.md`
     H-07.
+52. **Ölçüm aracını, SONUCU BİLİNEN bir duruma karşı sına — ve mümkünse
+    simülasyonsuz.** Faz 2.2 değerlendirme aracı ilk tam koşuda aynı modelin
+    kendisine karşı oynadığı halde mavinin karar verilen angajmanların
+    %70'ini kazandığını raporladı: senaryo üreteci taraf-simetrik değildi
+    (mavi hep burnu rakibe dönük başlıyordu, ort. sapma 8.6° vs kırmızı
+    30.3°). 40 koşuluk öz-denetim bunu göremedi çünkü Wilson aralığı n=10'da
+    geniş; ve kriterin kendisi kusurluydu (beraberlikleri sayıyordu). Aynı
+    bakışta `nz_min`'in işaretinin yanlış olduğu da çıktı (ham `st.nz` düz
+    uçuşta −1, minimum = +g çekişi). Düzeltme sonrası koltuk simetrisi
+    başlangıç geometrisinden **anında** (5000 tohum, simülasyon yok) kontrol
+    edilebiliyor — bu, önyargıyı ilk gün, koşu yapmadan yakalardı.
+    **Kural: yeni bir değerlendirme/ölçüm aracı yazınca ilk iş "sonucu
+    zaten bilinen" bir duruma (simetrik rakip → %50, aynı tohum → aynı
+    sonuç) karşı çalıştır; kriteri yazarken beraberlik gibi kenar
+    durumların oranı nasıl değiştirdiğini düşün.** Tam hikaye:
+    `HATA_GUNLUGU.md` H-09.
+53. **Eşleşmiş (CRN) veriyi eşleşmeyi HARCAYAN yöntemle çözümleme — ve
+    "eşleşmiş"in birimini doğru say.** İki kolun özet tablosunda Wilson
+    aralıkları örtüştü; oysa aynı senaryolar iki kolda da koşulduğu için
+    doğru araç eşleşmiş testtir (yalnız uyumsuz çiftler bilgi taşır).
+    İkinci tuzak: eşleşmiş testin BİRİMİ koşu değil SENARYO. Normal ve
+    aynalı koşu aynı tohumdan geldiği için bağımsız değil; 2n çift yerine n
+    küme (senaryo başına galibiyet sayısı kıyaslanır). Ölçülen: koşu düzeyi
+    p=0.029, kümelenmiş p=0.023 — bu sefer sonuç değişmedi ama araç bunu
+    kendisi söylemeli. **Kural: ölçüm tasarımında (ayna, tekrar, ortak
+    tohum) BAĞIMSIZLIĞI bozan her şeyi bir "küme" olarak tanımla ve testi
+    küme düzeyinde yap.** `HATA_GUNLUGU.md` H-11.
+54. **"Sıfır oluyor" iki farklı şey olabilir: hiç olmuyor / olsa da
+    raporlanmıyor.** 5439 füzenin 0'ı `iska` idi. Ayırmanın yolu sonucu
+    zorla ÜRETİP zincirin sonuna kadar izlemek (öldürme yarıçapını küçült,
+    olay günlüğüne ve hedefin hayatta kalmasına bak) — 3 halkadan
+    (Missile → CombatEvent → DuelResult) yalnız ortadaki sınanmamıştı.
+    `HATA_GUNLUGU.md` H-10.
+55. **Bir müdahalenin ÜSTÜNLÜĞÜNÜ ölçmek için müdahaleyi ASİMETRİK uygula.**
+    Atış kapısını iki komutana birden verirsen ikisi de aynı anda iyileşir;
+    mavi-kırmızı farkı birbirini götürür ve kazanma oranı "kapı kazandırıyor
+    mu?" sorusunu cevaplamaz (yalnız sonuçsuz savaşları karara çevirir).
+    Kol A referans (35v35), kol B yalnız mavi kapılı. Asimetrik kolda araç
+    koltuk dengesi ~%50 BEKLEMEMELİ (`ArmSpec.symmetric`) — yoksa kendi
+    uyarısı seni yanlış yönlendirir. Birincil değeri (25 nmi) ÖNCEDEN sabitle,
+    başkasını KEŞİF işaretle (p-hacking). Referans kolu HER ZAMAN aynı kod
+    sürümüyle yeniden koştur. Ayrıntı: `REQUIREMENTS.md` EVAL-04.
+56. **Gözlemsel doz-yanıt ilişkisi müdahalede tutmayabilir — ve iki taraflı
+    etkileşimde bir tarafın müdahalesi DİĞER tarafın sonucunu değiştirir.**
+    A kolunda atış-başına-isabet ilk atış menziliyle güçlü düşüyordu
+    (%17.8→%2.8), ama mavinin atışını 25 nmi'ye ertelemek isabeti artırmadı
+    (%6.5→%6.6) ve mavi kaybı 89→120 çıktı: KIRMIZININ isabeti %6.5→%8.7'ye
+    çıktı — mavi geç atınca kırmızı erken kaçışa zorlanmıyor, kendi füzelerini
+    sonuna kadar güdüyor (hipotez). Dersler: (a) korelasyonu müdahaleyle sına
+    (b) tahmini ÖNCEDEN yaz — çürütme tartışmasız oldu (c) iki taraflı bir
+    sistemde müdahale edilen tarafın metriğine değil, RAKİBİN metriğine de bak
+    (d) "aynı anda atış" simetrisi bir denge olabilir; onu bozmak bedel öder.
+    `HATA_GUNLUGU.md` H-12, `REQUIREMENTS.md` EVAL-05.
+57. **Bir sonuçtan doğan YENİ hipotezi AYNI senaryolarla sınama (çift-dalış).**
+    EVAL-05'in verisi "eşleşme" hipotezini doğurdu; onu aynı 200 tohumla
+    koşmak, hipotezi doğuran veriye ikinci kez bakmak olurdu (gürültüye
+    uydurma riski). Yeni hipotez → TAZE tohum (2000–2199); araç eski tohumlarla
+    çakışırsa uyarır (`SEEN_SEEDS`). Aynı prensip: birincil ölçüt hipotezle
+    UYUMLU seçilir — simetrik kolda kazanma oranı ~0.5'te kalır, bilgisizdir;
+    verim ölçütü (toplam isabet) seçilir. Ayrıntı: `REQUIREMENTS.md` EVAL-06.
+58. **Müdahalenin çalışması, ÖNERMENİN doğru olduğunu göstermez — sonucu
+    bileşenlerine ayır.** Simetrik atış kapısı isabeti +%23 artırdı (p=7.5e-7);
+    ama tahmin ettiğimiz kanal (füze enerji tükenmesi, %71) HİÇ değişmedi
+    (%70.8→%71.1); kazanç kör (datalink kaybı) füzelerin çöküşünden geldi
+    (%3.0→%0.6). "Müdahale çalıştı → varsayım doğru" demek yanlış olurdu.
+    Kural: bir müdahalenin sonucunu, hipotezin İDDİA ETTİĞİ kanala göre
+    parçala (burada füze sonlanma nedenleri, taraf bazında) ve o kanalı AYRICA
+    kontrol et. Ucuz bir fizik probu (`scripts/missile_envelope.py`) mekanizmayı
+    angajman gürültüsünden bağımsız ayırır — koşu öncesi/sonrası ilk bakılacak
+    yer. `HATA_GUNLUGU.md` H-13, `REQUIREMENTS.md` EVAL-07.
+59. **Tekrar SONUCU doğrular, MEKANİZMAYI değil — ve "isabet düelloyu bitirir"
+    payda sansürü yaratır.** EVAL-05'in "geç atan taraf kaybeder" bulgusu taze
+    tohumda tekrarlandı (7:53 birleşik, p=7.7e-10); ama kendi mekanizma tahminim
+    (kör füze payı düşer) tutmadı. Kural: tekrar, etkinin VARLIĞINI sağlamlaştırır;
+    NEDENİ ayrıca, önceden yazılmış bir tahminle sına. İkinci ders: bir düello ilk
+    isabetle biter → geç/yavaş tarafın havadaki füzeleri çözülmeden kesilir
+    (`havada-kaldı`). Ham "atış başına isabet" bu füzeleri payda tutar ve geç atan
+    tarafı haksız yere kötü gösterir; taraflar arası kıyasta "sonuca ulaşan füze
+    başına isabet"e (ve `hedefsiz` hariç) de bak. `HATA_GUNLUGU.md` H-14.
+60. **Aracın kendi uyarısı: ne görmezden gel, ne hemen "hata" say.** Yerleşik koltuk
+    uyarısı N kolunda tetiklendi (mavi payı 0.56). Çoklu test gerçeği: 8 simetrik kol
+    kontrolünün en az birinin %5 düzeyinde uyarması ~%34 olasılıklı — tek uyarı tek başına
+    önyargı kanıtı değil. Sıra: (1) simetrik senaryoda birebir simetri mi (kod yanlılığı) (2)
+    örneklem dengesizliği (irtifa/Mach/yakıt) ve etkisi (3) normal/ayna ayrımı (koltuk mu
+    geometri mi) (4) replikasyon. Ve ölçütünü koltuk-bağımsız seç (≥1 isabet gibi) ki uyarı
+    çözülmese de birincil sonuç geçerli kalsın. SONUÇ (EVAL-10): N kolu taze tohumda 0.491 — uyarı
+    tekrarlanmadı (şans); uyarı C koluna kaydı, 8 koşu birleşik 0.5195 (p=0.083) → küçük artık
+    izleniyor. `HATA_GUNLUGU.md` H-15.
+61. **"Neredeyse önceden belli" dediğin varyantı da koştur; ve rakip taban çizgisinin SÖMÜRÜLEBİLİRLİĞİNİ
+    öl.** Yalnız-fuze kaçış varyantı için "füze zarfına göre kurtarmaz, sonuç önceden belli" diye tahmin
+    yazmıştım (net skor düşer, ~%90); gerçek: net skor −2 → **+144** (p=8e-15). Kusursuz kilitli füze zarfı
+    ölçümü doğruydu, ondan çıkardığım savaş sonucu değil: aktif arayıcıdan sonra başlayan kaçış bile ~%80
+    hayatta bırakıyor, erken (kilitte) kaçışın marjinal hayatta kalma değeri küçük, maliyeti (saldırı,
+    kör füze, tükenme) büyük. Sonuç: betikli komutan ("kilitte kaç") TEK parametreyle yenilebiliyor — RL'nin
+    bu tabanı geçmesi bir başarı olmazdı. Kurallar: (a) fizik probunu savaş sonucu yerine koyma (b)
+    taban çizgisini RL'den ÖNCE sömürülebilirlik testinden geçir (tek parametre sapmaları, asimetrik
+    kollar) ve güçlü tabanı seç (c) ikili etkileşimde tek taraflı sapmanın getirisi, iki tarafın birlikte
+    sapmasınınkinden farklıdır. `HATA_GUNLUGU.md` H-16, `REQUIREMENTS.md` EVAL-11.
+62. **Sabit bir eşiği, çok-rejimli bir senaryo dağılımı üzerinde ortalamayla değerlendirme.** Atış kapısı (25 nmi) tüm irtifalar
+    (15–35 kft) karışık ölçüldü → "+1.3 puan, küçük kaldıraç"; irtifa dilimine bölünce: <20 kft %1.0→%4.3 (4×), ≥30 kft etkisiz. Füze zarfı
+    irtifayla 22.8→49 nmi değişiyor (`missile_envelope.py --sweep`). Kural: bir eşik/politika etkisini, sonucu belirleyen ANA DEĞİŞKENE
+    (irtifa, hız, aspect) göre kır; ortalama farklı rejimlerin etkilerini siler. Ve bir KALİBRASYON DÜĞMESİ (`min_speed_mach`=1.5 →
+    Rmax kafa-kafaya 32.7 nmi; 1.0 → 46.0 nmi) tüm taktik manzarayı kaydırır: karar 2.3c'den önce verilip DONDURULUR.
+    `HATA_GUNLUGU.md` H-17, `REQUIREMENTS.md` §13.5.
 
 ### Ölçüm (en çok hata yapılan yer)
 15. **Tepe değeri güvenlik metriği değil.** Tek bir −3.37 g örneği

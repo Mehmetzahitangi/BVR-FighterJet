@@ -301,3 +301,256 @@ göründü.
   False" sorusunu sormak, kodu düzeltmekten önce geldi.
 
 **Bağlam:** Faz 2.2. Ayrıntı: `REQUIREMENTS.md` EVAL-01.
+
+---
+
+## H-09 — Değerlendirme aracı TARAF TUTUYORDU (koltuk önyargısı) + nz işareti + kusurlu öz-denetim
+
+**Ne ile karşılaştık:** İlk tam koşu (n=200, 800 savaş) bitince sonuçlara
+bakarken mavi, aynı modelin kendisine karşı oynadığı halde karar verilen
+angajmanların %70'ini kazanmıştı (155 galibiyet : 65 mağlubiyet). Simetrik
+bir ölçümde bu ~%50 olmalı.
+
+**Ne yaptık (araştırma):** Şüphelenmek yerine CSV'den ölçtüm: senaryoları
+tohumdan yeniden üretip her iki tarafın BAŞLANGIÇ burun-hedef açısını
+hesapladım. Mavi ort. 8.6°, kırmızı ort. 30.3°. Mavinin galibiyet payı bu
+farkla monoton artıyordu (0.55 → 0.69 → 0.90). Aynı bakışta `nz_min`
+sütununun 800 satırda da negatif çıktığını (en büyüğü −1.47) fark ettim.
+
+**Gerçekten hata mıydı?** EVET — üçü de ölçüm aracının hatası, modelin değil:
+1. **Koltuk önyargısı.** Spesifikasyon "yalnızca kırmızının yönü ±60° rastgele"
+   diyordu; mavi hep burnu rakibe dönük başlıyordu. Doğu-batı aynası sol/sağ
+   önyargısını dengeler, mavi/kırmızı koltuğunu DEĞİL (normal 0.70, ayna
+   0.71). **Düzeltme:** mavinin yönü de kırmızıyla aynı dağılımdan çekiliyor
+   (`blue_offset_deg`, çizim EN SONA eklendi, ayna onu da çeviriyor).
+2. **`nz_min` işareti.** Proje sözleşmesinde düz uçuş = +1, ham `st.nz` düz
+   uçuşta ≈ −1 (tuzak 5). Ham değerin minimumu = +g çekişiydi (−8.08 =
+   +8.08 g), izleme listesindeki negatif-g eşiğiyle ilgisiz. **Düzeltme:**
+   `g = −st.nz`, `nz_min` + `nz_max` ayrı.
+3. **Öz-denetim kriteri.** "Tüm koşularda kazanma oranı %50'yi içermeli"
+   beraberlikleri hesaba katmıyordu. n=10'da GA geniş olduğu için sorun
+   gizli kalmıştı; n=400'de sırf bu yüzden düşerdi. **Düzeltme:** geometri
+   simetri kontrolü (simülasyonsuz, keskin) + karar verilenlerde mavi payı;
+   tam koşu raporuna yerleşik "ölçüm aracı taraf tutuyor" uyarısı.
+
+**Neden şimdiye kadar yakalanmadı:** 40 koşuluk öz-denetim ve 10 örnekli
+kontroller Wilson aralığı genişken bu önyargıyı GÖREMEZDİ. Önyargı ancak
+n=400'de ve sonuçlara "aynı model, neden bir taraf kazanıyor?" diye
+bakınca göründü. Spesifikasyonun kendi §9-3 maddesi ("kendisine karşı →
+%50") doğru soruyordu; benim uygulamam yanlış soruyu (beraberlik dahil
+tüm oran) sordu.
+
+**Bizi nasıl etkiler:** İlk koşunun sayıları (truth 0.388 / rwr 0.367,
+McNemar p=0.096) asimetrik bir dağılım üzerinde ölçüldü — NİHAİ DEĞİL.
+Paired karşılaştırma büyük ölçüde etkilenmez (her iki kol aynı önyargıyı
+taşıyor) ama mutlak kazanma oranları ve Faz 4'ün RL-vs-betikli
+karşılaştırması için araç simetrik olmak zorunda. Düzeltilmiş araçla koşu
+yeniden yapılacak.
+
+**Genel ders (HANDOFF tuzak 52):** ölçüm aracının kendisini, sonucu
+bilinen bir duruma (aynı model kendisine karşı → simetri) karşı sına — ve
+bunu SİMÜLASYONSUZ, anlık yapabildiğin yerde yap (geometri kontrolü).
+
+**Bağlam:** Faz 2.2. Ayrıntı: `REQUIREMENTS.md` EVAL-02.
+
+
+---
+
+## H-10 — 5439 füzenin sıfırı `iska`: hata mı, yoksa hiç olmuyor mu?
+
+**Ne ile karşılaştık:** 800 savaşta 5439 füze atıldı; `iska_count` hep 0.
+"Hiç olmuyor" ile "olsa da raporlanmıyor" arasını ayıramıyorduk (MSL-09'un
+atıl kapısıyla aynı aile).
+
+**Ne yaptık (araştırma):** Zinciri üç halkaya böldüm. (1) `Missile`:
+`test_9b` zaten `iska` üretiyor. (2) `Engagement`: olay türü
+`state.result`'tan geliyor (`kind=state.result`), ama gerçek bir angajmanda
+hiç sınanmamıştı. (3) `run_duel`: `iska` `kind_counts` sözlüğünde; aynı
+genel dal `kor/hedefsiz/tukenme` için 800 koşuda sıfırdan farklı sayılar
+üretiyor — yani dal çalışıyor. Eksik halka (2) idi: enerjili bir füzeyi
+öldürme yarıçapının dışından geçirip olayı ve hedefin hayatta kalmasını
+denedim. Önce ölçtüm: 8 nmi kafa kafaya, en iyi mesafe ~8 ft.
+
+**Gerçekten hata mıydı?** HAYIR — raporlama zinciri sağlam.
+- **Nasıl anladık:** Yarıçapı 2 ft yapınca aynı füze `iska` olay günlüğüne
+  yazıyor, hedef hayatta, `tukenme` yok (`test_engagement.py::test_10`,
+  mutasyonla sınandı: engagement `iska`→`kor` ve missile hep-`isabet`
+  ikisi de yakalanıyor). 30 ft'lik gerçek yarıçapta 3-DOF PN + 0.05 s
+  entegrasyon ~8-24 ft'e iniyor: enerjisi olan füze ya vuruyor ya
+  enerjisini tüketiyor; ıska penceresi ince.
+- **Bizi nasıl etkiler:** `iska=0` bir raporlama hatası değil, model
+  gerçekçiliğinin (3-DOF PN, manevra-gürültüsüz hedef) bir sonucu.
+  Gerçek füzeler daha çok ıskalar; tezde "füze modeli kusursuz güdümlü,
+  ıska yalnız enerji/seeker kaybından" cümlesi açık yazılmalı (MSL-09).
+
+**Bağlam:** Faz 2.2, EVAL-03b.
+
+## H-11 — Eşleşmiş veriyi bağımsız çiftmiş gibi test etmek (iyimser p)
+
+**Ne ile karşılaştık:** Özet tabloda iki Wilson aralığı örtüşüyordu
+(0.253 [0.212, 0.297] vs 0.223 [0.184, 0.266]) ama McNemar p=0.029 çıkmıştı.
+İnceleme: hangisi doğru, ve 400 çift gerçekten bağımsız mı?
+
+**Ne yaptık:** Aynı veriyi üç şekilde çözümledim: ham 400 çift (p=0.029),
+ayna kopyaları ayrı ayrı (p≈0.15–0.18, tek başına güçsüz), senaryo düzeyinde
+kümelenmiş — 200 tohum, ayna çifti tek gözlem (18:6, p=0.023).
+
+**Gerçekten hata mıydı?** KISMEN — sonuç aynı kaldı ama YÖNTEM eksikti.
+- **Düzeltme:** Ayna kopyaları aynı tohumdan (ortak yakıt/irtifa/Mach/
+  türbülans büyüklükleri) geldiği için bağımsız değil; araç 400 bağımsız
+  çift varsayıyordu, oysa 200 senaryo var. `compare_arms_clustered` eklendi
+  ve ASIL karar oldu; koşu düzeyi test bilgi olarak basılıyor. Örtüşen
+  Wilson aralıkları EŞLEŞMİŞ karşılaştırmada karar kriteri değil (eşleşmeyi
+  harcıyor) — rapora not eklendi.
+
+**Bağlam:** Faz 2.2, EVAL-03b. Ayrıntı: `HANDOFF.md` tuzak 53.
+
+
+## H-12 — Menzil–isabet ilişkisi müdahalede tutmadı: hata mı, yanlış yorum mu?
+
+**Ne ile karşılaştık:** EVAL-03b'de "başlangıç ayrımı arttıkça isabet düşüyor
+(%80→%38→%19)" bulgusuna dayanarak atış kapısını 35→25 nmi'ye çektik. Beklenti:
+atış başına isabet birkaç kat artar. Sonuç: mavinin atış başına isabeti
+%6.5→%6.6 (değişmedi), kazanma p=0.90, mavi kaybı 89→120.
+
+**Ne yaptık (araştırma):** (1) A kolunu önceki koşuyla 400/400 birebir
+karşılaştırdık → kod kayması yok. (2) Kapının kaç senaryoda bağladığına baktık
+→ 392/400, seyrelme yok. (3) Yeni CSV sütunlarıyla A kolunda atış-başına-isabeti
+İLK ATIŞ MENZİLİNE göre kırdık → ilişki gerçek (%17.8/%12.3/%6.1/%2.8).
+(4) Sonuç geçişlerini ve kayıpları senaryo düzeyinde inceledik.
+
+**Gerçekten hata mıydı?** HAYIR — ölçüm ve kod doğru; YORUM eksikti.
+- **Nasıl anladık:** İlişki gözlemsel olarak sağlam ama müdahalede
+  tutmuyor; iki açıklama var: senaryo geometrisiyle karışıklık veya
+  atış-kaçış eşleşmesi (bir tarafın gecikmesi rakibi kaçıştan kurtarıyor,
+  rakibin isabeti %6.5→%8.7 çıkıyor). Hangisi olduğunu şu anki veri ayırt
+  edemiyor (füze sonlanma nedenleri taraf bazında yok).
+- **Bizi nasıl etkiler:** Gözlemsel korelasyonu müdahale sonucu diye
+  sunmuyoruz; "atış kapısı" davranış ağacına olduğu gibi girmiyor. Önceden
+  yazılmış tahmin sayesinde çürütme net ve tartışmasız.
+
+**Bağlam:** Faz 2.3 ÖN ÖLÇÜMÜ (2.3'ün kendisi başlamadı), EVAL-05. Ayrıntı: `HANDOFF.md` tuzak 56.
+
+
+## H-13 — "Füzelerin %71'i enerji tüketiyor, menzil yüzünden": varsayım yanlış çıktı
+
+**Ne ile karşılaştık:** EVAL-03b'de füzelerin ~%70'i `tukenme` ile bitiyordu ve
+başlangıç ayrımıyla isabet düşüyordu (%80→%38→%19); "çok uzaktan atıyoruz"
+varsayımıyla atış kapısı deneyleri kuruldu (EVAL-04..06).
+
+**Ne yaptık (araştırma):** (1) Simetrik kapıyla (iki taraf 25 nmi, taze tohum)
+tükenme oranını ölçtük → %70.8→%71.1, DEĞİŞMEDİ. (2) Taraf bazlı füze sonlarıyla
+kazancın nereden geldiğine baktık → kör füze %3.0→%0.6. (3) Füze zarfını kusursuz
+kilitle ölçtük (`scripts/missile_envelope.py`): enerji bütçesi ~70 s, kafa kafaya
+azami menzil ~30–33 nmi, hedef döndükçe daha kısa.
+
+**Gerçekten hata mıydı?** HAYIR — ölçüm ve kod doğru; VARSAYIM yanlıştı.
+- **Nasıl anladık:** Müdahale (menzili 10 nmi kısaltmak) çalıştı (isabet +%23,
+  p=7.5e-7) ama beklenen kanaldan değil: tükenme kıpırdamadı, kör füze çöktü.
+  "Müdahale çalıştı" ile "varsayım doğruydu" aynı şey değil.
+- **Bizi nasıl etkiler:** Tükenmenin nedeni bilinmiyor; en olası aday hedefin
+  dönmesi/kaçışı (SIM2-09 crank sürüklenmesiyle tutarlı, sınanmadı). Atış menzili
+  küçük bir kaldıraç (+1.3 puan); büyük kaldıraç savunma manevrası/kaçış tasarımında
+  olabilir → Faz 2.3 davranış ağacının odağı buraya kayıyor.
+- Yan bulgu: `LaunchRules.max_launch_nm=35`, füzenin KENDİ kafa kafaya kinematik
+  menzilinden (~33) uzun (35 nmi'de kusursuz kilitle bile tükeniyor). Hata değil
+  (yetki ≠ Rmax), ama tez metninde ayrı kavramlar olarak yazılmalı.
+
+**Bağlam:** Faz 2.3 ÖN ÖLÇÜMÜ (2.3'ün kendisi başlamadı), EVAL-07. Ayrıntı: `HANDOFF.md` tuzak 58.
+
+
+## H-14 — "Kaçış rakibin füzesini körletir, o yüzden geç atan kaybeder" hipotezi çürüdü
+
+**Ne ile karşılaştık:** EVAL-05'te mavi 25 nmi'de (kırmızı 35) atınca mavi kaybı 89→120,
+kırmızının isabeti %6.5→%8.7 çıktı. Hipotezim: mavi geç atınca kırmızı erken kaçışa
+zorlanmıyor, kendi füzelerini kilitli tutuyor (kör füze payı düşer).
+
+**Ne yaptık (araştırma):** Taze tohumda (2000–2199) tekrar; tahmin ve yorum tablosu
+sonuçtan ÖNCE yazıldı (EVAL-08). Bu sefer taraf bazlı füze sonları vardı.
+
+**Gerçekten hata mıydı?** HAYIR — etki gerçek ve tekrarlandı; MEKANİZMA hipotezim
+yanlıştı.
+- **Nasıl anladık:** Mavi kaybı 94→123 (6:28, p=2e-4; EVAL-05 ile birleşik 7:53,
+  p=7.7e-10) → etki tekrarlandı. Ama kırmızının kör payı DEĞİŞMEDİ (%2.7→%2.6);
+  değişen şey mavinin havada-kalan füze payı (%12.9→19.0). Kör-eşleşme değil,
+  atış yarışı + sansür (isabet düelloyu bitirir, geç atanın füzeleri kesilir) daha
+  olası — henüz kanıt değil, yalnız veriyle uyumlu.
+- **Bizi nasıl etkiler:** Tek taraflı atış gecikmesi güvenilir biçimde zarar verir;
+  atış kapısı davranış ağacına girmez. "Ham atış başına isabet" geç atan taraf için
+  yanıltıcı (kesilen füzeler payda) — sonuca ulaşan füze başına orana da bak.
+
+**Bağlam:** Faz 2.3 ÖN ÖLÇÜMÜ (2.3'ün kendisi başlamadı), EVAL-08. Ayrıntı: `HANDOFF.md` tuzak 59.
+
+
+## H-15 — N kolunda "ölçüm aracı taraf tutuyor" uyarısı: şans mı, önyargı mı? (KAPANDI: şans; küçük artık İZLENİYOR)
+
+**Ne ile karşılaştık:** Hiç-kaçış tanı kolunda (N) yerleşik koltuk uyarısı tetiklendi: karar
+verilen 378 savaşta mavi payı 0.56 (GA [0.51, 0.61]). Diğer 7 simetrik kolda 0.49–0.52 idi.
+
+**Ne yaptık (araştırma):** (1) normal/ayna ayrımı: 0.58 / 0.54 → geometri değil koltuk.
+(2) Senaryo düzeyi: mavi-çok-isabet 79, kırmızı 53 (p=0.029); C kolunda 42:37. (3) TAM simetrik
+senaryoda (verbose) düello birebir simetrik: aynı anda atış, aynı anda isabet, karşılıklı imha
+→ temel döngüde sıra yanlılığı yok. (4) Örneklemdeki mavi−kırmızı irtifa/Mach/yakıt farkı
++0.6–0.7σ (anlamsız) ve mavinin kazanmasıyla ilişkisi sıfır/ters. (5) İlk atış menzili ve
+zamanı eşit (24.9864 nmi), atış sayısı 969/979.
+
+**Gerçekten hata mıydı?** HAYIR — EVAL-10 taze tohumlu tekrarıyla ŞANS olarak kapandı (aşağıdaki güncelleme).
+- **Nasıl anladık / anlayamadık:** Kod yanlılığı ve örnekleme dengesizliği elendi; kalan en olası
+  açıklama şans (8 simetrik kol kontrolünde en az bir %5'lik uyarı olasılığı ~%34). Kanıt değil.
+- **Bizi nasıl etkiler:** EVAL-09'un birincil sonucu (%57.8 → %100, p=1e-28) koltuk-bağımsız bir
+  ölçüte dayanır ve 42 puanlık farkı bir koltuk yanlılığı açıklayamaz → sonuç etkilenmiyor. Ama
+  gelecekteki N-benzeri (belirlenimci yarış rejimi) karşılaştırmalarında mavi kazanmaya
+  güvenilmemeli; şüphe replikasyonla (N kolu taze tohumda) kapanmalı.
+
+**Bağlam:** Faz 2.3 ÖN ÖLÇÜMÜ (2.3'ün kendisi başlamadı), EVAL-09. Ayrıntı: `HANDOFF.md` tuzak 60.
+
+**GÜNCELLEME (EVAL-10, 2026-09-20) — kapanış:** N kolu taze tohumda (4000–4199) tekrarlandı:
+mavi payı **0.491 [0.441, 0.541]** (senaryo düzeyi 72:74) → önceden yazılmış karar kuralı gereği
+**şans**, madde kapandı. Uyarı bu sefer C koluna kaydı (0.572, GA 0.5'i dışlar) — çoklu kontrol
+örüntüsü. 8 benzersiz simetrik koşunun birleşik mavi payı 1050/2021 = 0.5195 [0.498, 0.541]
+(p=0.083); ≥2 uyarının şans olasılığı 0.057. Küçük (~2 puan) bir mavi avantajı TAMAMEN dışlanmadı
+→ İZLEME maddesi (yeni simetrik koşularla güncellenir); eşleşmiş tasarımlarda sadeleşir.
+Ders: tek bir uyarıyı hemen açıklamaya çalışmak yerine, kod yanlılığını ele, örnekleme dengesizliğini
+ele, TEKRARLA (tuzak 60).
+
+
+## H-16 — "Kaçış en büyük kaldıraç, hep kaçmak savunmada iyi": çıkarım yarı yanlıştı
+
+**Ne ile karşılaştık:** EVAL-09'da kaçışı tamamen kapatınca (N) ≥1 isabetle biten savaş %57.8 → %100 oldu;
+buradan "füzeleri asıl kaçış başarısız kılıyor, en büyük kaldıraç savunma politikası, sürekli kaçış savunmada
+iyi (sağ kalıyor) ama saldırıyı öldürüyor" sonucunu çıkardım ve EVAL-11'de tetikleyiciyi geciktirmenin
+hayatta kalmayı kötüleştireceğini (net skor düşer, ~%90) tahmin ettim.
+
+**Ne yaptık (araştırma):** Mavi kaçışı geciktirilen asimetrik kollar (T=15 s ve T=∞ yalnız-fuze), taze
+tohum, Bonferroni. Sonra kaçış moduna dair sağlık kontrolü (kaçış süresi medyan 15.5 s = aktif arayıcı
+penceresi, gecikme alanı doğru kaydedilmiş).
+
+**Gerçekten hata mıydı?** KISMEN — ölçüm/kod doğru; çıkarımım ve tahminim yanlıştı.
+- **Nasıl anladık:** B2'de mavi net skor −2 → +144 (p=8e-15); kayıp yalnız +%33 (86→114), kazanma 84 → 258.
+  EVAL-09 doğruydu (kaçış füzeleri yeniyor) ama TEK TARAFLI erken kaçışın hayatta kalma faydası, atağa
+  maliyetinden çok küçük: aktif arayıcıdan sonra başlayan kaçış bile ~%80 hayatta bırakıyor. EVAL-09'dan
+  çıkardığım "sürekli kaçış savunmada iyi" cümlesi YANLIŞTI. Füze zarfı ölçümüne dayanarak "yalnız-fuze
+  neredeyse önceden belli (kaçış pitbull'da kurtarmaz)" demiştim — ölçüm doğruydu, çıkarım değil (15 nmi'de
+  kusursuz kilitle bile isabet ≠ gerçek savaşta kaçışın kurtarmadığı).
+- **Bizi nasıl etkiler:** Betikli taban çizgisi ("kilitte kaç") sömürülebilir. Faz 4'ün "RL, betikli tabanı
+  geçsin" ölçütü zayıf tabana karşı yanıltıcı olurdu. Taban ÖNCE güçlendirilmeli. Bkz. tuzak 61.
+
+**Bağlam:** Faz 2.3 ÖN ÖLÇÜMÜ (2.3'ün kendisi başlamadı), EVAL-11. Ayrıntı: `HANDOFF.md` tuzak 61, `REQUIREMENTS.md` EVAL-11.
+
+
+## H-17 — Sabit menzil kapısı "küçük kaldıraç" sonucu irtifa karışımının ortalamasıymış
+
+**Ne ile karşılaştık:** EVAL-07'de simetrik 25 nmi kapısı isabeti yalnız ~+1.3 puan artırmıştı; H-13'te "atış menzili küçük kaldıraç" dedik.
+Kalibrasyon ölçümü (`missile_envelope.py --sweep`) füze zarfının irtifaya çok bağlı olduğunu gösterdi (kafa kafaya Rmax 22.8/32.7/49.0
+nmi, 15/25/35 kft, M0.9) — oysa atış yetkisi ve kapı her irtifada sabit.
+
+**Ne yaptık (araştırma):** EVAL-07 verisini atıcı irtifa dilimine böldük (simülasyonsuz): <20 kft'te isabet %1.0→%4.3 (tükenme %84→%85),
+20–30 kft'te %7.2→%8.0, ≥30 kft'te %14.0→%13.3.
+
+**Gerçekten hata mıydı?** HAYIR (veri ve kod doğru) — YORUM eksikti.
+- **Nasıl anladık:** Kapının etkisi yalnız alçak irtifada görünüyor ve orada bile 25 nmi zarfın dışında kalıyor (tükenme %85); yüksekte
+  zarf 35 nmi'yi zaten aşıyor (kapı gereksiz). Ortalama bu üç farklı rejimi sildi (Simpson'a benzer bir karışım).
+- **Bizi nasıl etkiler:** "Menzil kapısı etkisiz" cümlesi YANLIŞ genelleme olurdu; doğrusu "SABİT menzil kapısı ortalamada zayıf". İrtifa/
+  hız-farkında bir atış kapısı hipotezi 2.3c'de ölçülecek (post-hoc; ölçülmedi). Tuzak 62.
+
+**Bağlam:** Faz 2.3 ÖN ÖLÇÜMÜ, kalibrasyon (§13.5).

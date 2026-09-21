@@ -43,7 +43,7 @@ from bvr.envs import guidance_shared as gs
 from bvr.combat.geometry import relative_geometry
 from bvr.combat.missile import MissileConfig, atmosphere
 from bvr.config import load_experiment
-from scripts.bvr_1v1_smoke import pick_target
+from bvr.combat.duel import pick_target  # Faz 2.2: artik burada barinir, bkz. duel.py basligi
 
 NM_TO_FT = 6076.11549
 DT = 0.1

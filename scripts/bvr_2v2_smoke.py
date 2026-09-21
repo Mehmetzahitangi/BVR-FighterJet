@@ -9,12 +9,19 @@ dusmani var. Bu betik iki yeni karar noktasi ekliyor (1v1'de yoktu):
      Guidance/pick_target mantigi (TAC-08, --crank-deg kirma) DEGISMEDI --
      sadece "dusman" artik sabit degil, tikten tike degisebilir.
 
-NEDEN --crank-deg VARSAYILANI 35 (1v1_smoke.py ile AYNI gerekce): ilk
+NEDEN --crank-deg VARSAYILANI 30 (1v1_smoke.py ile AYNI gerekce): ilk
 surumde 90 derece (tam beam) sabitti ve 16/16 fuze "kor" (datalink kaybi)
-oluyordu. Olculdu (REQUIREMENTS.md SIM2-07): 50 derecelik komut bile
-gercek ATA'yi ~65 dereceye tasiyip radar gimbal sinirini (60 derece) asiyor
-ve ATICI ucagin KENDI kilidini kirip fuzesini destesiz birakiyor. 35
-derecede zincir uctan uca calisiyor (atis->pitbull->seeker->isabet).
+oluyordu. `crank_sweep.py`'nin TAM taramasi crank'in SONSUZA KADAR degil
+tehdit gecene kadar tutuldugunu ve |ATA|'nin menzil kapandikca BUYUMEYE
+devam ettigini gosterdi -- dogru soru "hangi aci guvenli" degil "hangi aci
+HANGI MENZILE kadar guvenli": 30 derece ~6 nmi'ye, 35 derece ~9 nmi'ye kadar
+|ATA|<55 derecede kaliyor. 30 SEÇILDI cunku tam olcumde biraz daha genis
+pay biraktigi ve karsilikli imha ile dogrulandigi icin, "sonsuza dek
+asilmaz" oldugu icin DEGIL. Tarama ayrica saga/sola crank'in SIMETRIK
+OLMADIGINI buldu (guidance'in be=0'daki dogal saga-yatik onyargisi, bkz.
+SIM2-08); 30 derece daha kotu (sag) yone gore secildi. Faz 2.3'un davranis
+agaci crank'i SABIT aciyla degil GERI BESLEMEYLE (|ATA| esigi asinca kis)
+surmeli. Ayrinti: REQUIREMENTS.md SIM2-09.
   2. ATES DONGUSU: 1v1'de tek (shooter,target) cifti vardi; burada
      TAKIM ICI CARPRAZ tum (shooter,target) ciftleri (4 kombinasyon)
      her tikte ayri ayri can_fire ile kontrol edilir -- Engagement zaten
@@ -39,81 +46,27 @@ import sys
 import os
 import math
 import argparse
-import dataclasses
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from stable_baselines3 import SAC
 
-from bvr.envs.guidance_driver import GuidanceDriver
-from bvr.envs import guidance_shared as gs
 from bvr.combat.geometry import relative_geometry
-from bvr.combat.radar import Radar
 from bvr.combat.missile import MissileConfig
-from bvr.combat.engagement import Engagement, Loadout, LaunchRules
+from bvr.combat.engagement import Engagement, LaunchRules
 from bvr.config import load_experiment
 from bvr.sim.acmi import ACMIRecorder
+# Faz 2.2: pick_target / Aircraft / sabitler artik TEK kaynaktan (duel.py)
+# geliyor -- daha once burada birebir KOPYALARI vardi ve komutan/crank
+# mantigi degisince 2v2 sessizce geride kalabilirdi (bkz. duel.py basligi,
+# HANDOFF tuzak 47/51'in "iki kopya" dersi). 1v1'e ozgu run_duel()'u
+# kullanmiyoruz (2 ucaga sabit) -- sadece paylasilan parcalari import ediyoruz.
+from bvr.combat.duel import (
+    Aircraft, pick_target, NM_TO_FT, DT, DURATION_S, CRANK_DEG_DEFAULT,
+)
 
-NM_TO_FT = 6076.11549
-DT = 0.1
-DURATION_S = 180.0
-CMD_RANGE_NM = 12.0     # TAC-08 (5-25 nmi) icinde, egitim dagilimina (3.3-14.8) yakin
-CMD_MACH = 0.90
 SEP_NM = 30.0           # iki takim arasi baslangic mesafesi (1v1 ile ayni)
 WING_NM = 3.0           # kanat ucagi araligi (duvar formasyonu)
-CRANK_DEG_DEFAULT = 35.0
-MISSILE_MASS_LB = MissileConfig().mass_lb   # ENG'deki tek dogruluk kaynagi (335 lb)
-
-
-def pick_target(own_north, own_east, enemy_north, enemy_east, enemy_alt, mode: str, crank_rad: float):
-    """Basit betikli komutan: 'intercept' (dusmana don) ya da 'evade' (crank_rad kadar kir).
-    1v1_smoke.py ile AYNI -- sadece 'dusman' artik sabit degil."""
-    brg = math.atan2(enemy_east - own_east, enemy_north - own_north)
-    if mode == "evade":
-        brg += crank_rad
-    tgt_n = own_north + CMD_RANGE_NM * NM_TO_FT * math.cos(brg)
-    tgt_e = own_east + CMD_RANGE_NM * NM_TO_FT * math.sin(brg)
-    return tgt_n, tgt_e, enemy_alt, CMD_MACH
-
-
-class Aircraft:
-    """1v1_smoke.py::Aircraft ile AYNI -- tek dusman degil, cagiran tarafin
-    HER TIKTE sectigi dusmanin durumunu parametre olarak alir."""
-
-    def __init__(self, name, cfg, model, alt_ft, mach, heading_deg, origin_n_ft, origin_e_ft):
-        self.name = name
-        self.model = model
-        self.driver = GuidanceDriver(cfg=cfg, seed=abs(hash(name)) % 1000)
-        self.origin_n_ft = origin_n_ft
-        self.origin_e_ft = origin_e_ft
-        self.radar = Radar()
-        self.loadout = Loadout()
-        # Tam muhimmatla trim -- bkz. bvr_1v1_smoke.py::Aircraft ve
-        # GuidanceDriver.set_payload. reset()'TEN ONCE cagrilmali.
-        self.driver.set_payload(self.loadout.amraam * MISSILE_MASS_LB)
-        self.driver.reset(alt_ft=alt_ft, mach=mach, heading_deg=heading_deg, fuel_frac=0.75)
-
-    @property
-    def combat_state(self):
-        st = self.driver.st
-        return dataclasses.replace(st, north_ft=st.north_ft + self.origin_n_ft,
-                                   east_ft=st.east_ft + self.origin_e_ft)
-
-    def drop_missile(self):
-        """Bir fuze atildiktan SONRA cagrilir -- kalan yuke gore JSBSim
-        agirligini gunceller (yeniden trim GEREKMEZ)."""
-        self.driver.set_payload(self.loadout.amraam * MISSILE_MASS_LB)
-
-    def step(self, enemy_combat_state, mode: str, crank_rad: float):
-        own = self.combat_state
-        tgt_n, tgt_e, tgt_alt, tgt_mach = pick_target(
-            own.north_ft, own.east_ft, enemy_combat_state.north_ft,
-            enemy_combat_state.east_ft, enemy_combat_state.alt_ft, mode, crank_rad)
-        obs = gs.build_obs(self.driver.st, tgt_n - self.origin_n_ft,
-                           tgt_e - self.origin_e_ft, tgt_alt, tgt_mach,
-                           self.driver.last_applied)
-        action, _ = self.model.predict(obs, deterministic=True)
-        return self.driver.tick(action)
 
 
 def nearest_alive_enemy(name, team_of, states, eng):
@@ -135,6 +88,11 @@ def main() -> None:
                      help="Tacview ACMI kayit yolu (verilmezse kayit yapilmaz)")
     ap.add_argument("--crank-deg", type=float, default=CRANK_DEG_DEFAULT,
                      help="Kacis (evade) kirma acisi -- bkz. dosya basligindaki SIM2-07 notu")
+    ap.add_argument("--warning", choices=("truth", "rwr"), default="rwr",
+                     help="'truth' = kacis karari gercek fuze listesinden (eski, "
+                          "omniscient davranis, sadece REGRESYON referansi icin kalir); "
+                          "'rwr' = RWR modelinden (gercekci, varsayilan). bvr_1v1_smoke.py "
+                          "ile AYNI bayrak/gerekce.")
     args = ap.parse_args()
     crank_rad = math.radians(args.crank_deg)
 
@@ -152,9 +110,12 @@ def main() -> None:
     ]
     team_of = {name: team for name, team, *_ in roster}
     aircraft: dict[str, Aircraft] = {}
-    for name, team, hdg, on_ft, oe_ft in roster:
+    for i, (name, team, hdg, on_ft, oe_ft) in enumerate(roster):
+        # seed acikca veriliyor (eskiden hash(name)%1000 -- surecler arasi
+        # rastgele, "tekrar uretilebilir" iddiasi kagit ustundeydi).
         aircraft[name] = Aircraft(name, cfg, model, alt_ft=25000, mach=0.9,
-                                   heading_deg=hdg, origin_n_ft=on_ft, origin_e_ft=oe_ft)
+                                   heading_deg=hdg, origin_n_ft=on_ft, origin_e_ft=oe_ft,
+                                   seed=i)
 
     eng = Engagement(rules=LaunchRules(), missile_cfg=MissileConfig())
     for name in team_of:
@@ -185,7 +146,13 @@ def main() -> None:
                 enemy_name = nearest_alive_enemy(name, team_of, pre_states, eng)
                 if enemy_name is None:
                     continue  # takim tamamen imha edildi -- asagida zaten donguden cikilacak
-                evading = any(m.target_id == name and m.missile.alive for m in eng.missiles)
+                if args.warning == "truth":
+                    # ESKI (omniscient) davranis -- SADECE regresyon referansi
+                    # icin, bkz. bvr_1v1_smoke.py'deki AYNI gerekce.
+                    evading = any(m.target_id == name and m.missile.alive for m in eng.missiles)
+                else:
+                    worst = eng.aircraft[name].rwr.get_worst_threat()
+                    evading = worst is not None and worst.kind in ("kilit", "fuze")
                 aircraft[name].step(pre_states[enemy_name],
                                      "evade" if evading else "intercept", crank_rad)
 

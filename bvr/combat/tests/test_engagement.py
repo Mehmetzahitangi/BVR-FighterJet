@@ -263,3 +263,42 @@ def test_9_olu_hedefe_ikinci_fuze_hedefsiz_olur():
     isabet_events = [e for e in eng.events if e.kind == "isabet" and e.target == "red"]
     assert len(isabet_events) == 1
     assert any(e.kind == "hedefsiz" for e in eng.events)
+
+def test_10_enerjili_fuze_oldurme_yaricapi_disindan_gecerse_iska_olur():
+    # EVAL-03: 800 kosuda 5439 fuzenin SIFIRI 'iska' verdi. "Hic olmuyor" mu,
+    # "olsa da raporlanmiyor" mu? Bu test ikincisini ELER: Missile seviyesinde
+    # iska zaten var (test_missile_guidance::test_9b), burada ENGAGEMENT
+    # halkasi -- Missile.result -> CombatEvent(kind="iska") -> hedef HAYATTA --
+    # gercek bir angajman icinde kanitlanir.
+    #
+    # Kurulum test_7 ile AYNI (8 nmi kafa kafaya, fuze enerjisi bol: t~14.7 s
+    # uctan hedefe VARIYOR), TEK fark oldurme yaricapi 2 ft. Olculen en iyi
+    # fuze-hedef mesafesi ~8 ft (3-DOF PN + 0.05 s tik entegrasyonu) -- yani
+    # fuze "yanlis yonde"/"enerjisiz" degil, sadece yaricap altinda kalamiyor.
+    eng = Engagement(missile_cfg=MissileConfig(lethal_radius_ft=2.0))
+    blue = MockAircraftState(0.0, 0.0, 30000.0, psi_rad=0.0, vt_fps=900.0)
+    red = MockAircraftState(8.0 * 6076.11549, 0.0, 30000.0, psi_rad=math.pi, vt_fps=800.0)
+
+    r_blue = Radar()
+    r_blue.update(LOCK_DT, "red", relative_geometry(blue, red))
+    eng.add_aircraft("blue", blue, r_blue)
+    eng.add_aircraft("red", red, Radar())
+
+    assert eng.fire("blue", "red")
+    dt = 0.05
+    for _ in range(600):
+        blue.north_ft += blue.vt_fps * dt
+        red.north_ft -= red.vt_fps * dt
+        eng.update(dt, {"blue": blue, "red": red})
+        if not eng.missiles[0].missile.alive:
+            break
+
+    msl = eng.missiles[0].missile
+    assert msl.result == "iska"
+    assert msl._min_range_ft > 2.0                      # yaricap disinda gecti
+    assert eng.aircraft["red"].alive                    # hedef HAYATTA
+    kinds = [e.kind for e in eng.events]
+    assert "iska" in kinds and "isabet" not in kinds    # olay gunlugune yazildi
+    assert "tukenme" not in kinds                       # enerji bitmedi, gercek bir iska
+    ev = next(e for e in eng.events if e.kind == "iska")
+    assert ev.detail["time_of_flight"] > 10.0           # uctan uca uctu
